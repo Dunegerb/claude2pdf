@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Claude2PDF | Premium Archive</title>
+
+    <!-- Google Fonts for Editorial Luxury Feel -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;0,600;1,400&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Tailwind Config for Custom Fonts and Apple Motion Curves -->
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ["Inter", "sans-serif"],
+              serif: ["Playfair Display", "serif"],
+            },
+            colors: {
+              apple: {
+                bg: "#fbfbfd",
+                surface: "#ffffff",
+                text: "#1d1d1f",
+                subtext: "#86868b",
+                border: "#d2d2d7",
+                focus: "#0071e3",
+              },
+            },
+            transitionTimingFunction: {
+              apple: "cubic-bezier(0.16, 1, 0.3, 1)",
+            },
+          },
+        },
+      };
+    </script>
+
+    <style>
+      /* =========================================
+           CUSTOM MOTION & ANIMATIONS
+           ========================================= */
+      .fade-in-up {
+        animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        opacity: 0;
+      }
+
+      @keyframes fadeInUp {
+        0% {
+          opacity: 0;
+          transform: translateY(16px);
+        }
+        100% {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .smooth-transition {
+        transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+
+      /* =========================================
+           PDF RENDER ENGINE (EDITORIAL STYLE)
+           ========================================= */
+      @font-face {
+        font-family: "Claude-Title";
+        src: url("https://assets-proxy.anthropic.com/claude-ai/v2/assets/v1/c66fc489e-C-BHYa_K.woff2")
+          format("woff2");
+        font-weight: normal;
+      }
+      @font-face {
+        font-family: "Claude-Text";
+        src: url("https://assets-proxy.anthropic.com/claude-ai/v2/assets/v1/cc27851ad-CFxw3nG7.woff2")
+          format("woff2");
+        font-weight: normal;
+      }
+
+      #pdf-container {
+        font-family: "Inter", "Claude-Text", sans-serif;
+        color: #1d1d1f;
+        line-height: 1.7;
+        background-color: #ffffff;
+        padding: 3rem;
+        max-width: 800px;
+        margin: 0 auto;
+      }
+
+      #pdf-container h1,
+      #pdf-container h2,
+      #pdf-container h3 {
+        font-family: "Playfair Display", "Claude-Title", serif;
+        color: #000000;
+        margin-top: 2em;
+        margin-bottom: 0.75em;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+      }
+
+      #pdf-container p {
+        margin-bottom: 1.4em;
+        font-weight: 300;
+      }
+
+      .chat-message {
+        margin-bottom: 2.5rem;
+        clear: both;
+        word-wrap: break-word;
+      }
+
+      .message-user {
+        padding-left: 1.5rem;
+        border-left: 2px solid #1d1d1f;
+        font-weight: 500;
+        color: #1d1d1f;
+      }
+
+      .message-claude {
+        padding-top: 1rem;
+      }
+
+      #pdf-container pre {
+        background-color: #1d1d1f !important;
+        color: #f5f5f7 !important;
+        padding: 1.5rem;
+        border-radius: 12px;
+        font-family: "Courier New", Courier, monospace;
+        font-size: 0.85em;
+        margin: 2em 0;
+        white-space: pre-wrap !important;
+        word-wrap: break-word !important;
+        page-break-inside: avoid;
+      }
+
+      #pdf-container code {
+        font-family: "Courier New", Courier, monospace;
+        background-color: #f5f5f7;
+        padding: 0.2em 0.4em;
+        border-radius: 6px;
+        font-size: 0.9em;
+        color: #1d1d1f;
+      }
+
+      #pdf-container pre code {
+        background-color: transparent;
+        padding: 0;
+        color: inherit;
+      }
+
+      #pdf-container ul {
+        list-style-type: none;
+        padding-left: 1.5rem;
+        margin-bottom: 1.5em;
+      }
+      #pdf-container ul li::before {
+        content: "•";
+        color: #86868b;
+        display: inline-block;
+        width: 1em;
+        margin-left: -1em;
+      }
+      #pdf-container ol {
+        list-style-type: decimal;
+        padding-left: 1.5rem;
+        margin-bottom: 1.5em;
+      }
+
+      #pdf-container table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 2em 0;
+        font-size: 0.9em;
+        page-break-inside: avoid;
+      }
+      #pdf-container th,
+      #pdf-container td {
+        border-bottom: 1px solid #d2d2d7;
+        padding: 1rem 0.5rem;
+        text-align: left;
+      }
+      #pdf-container th {
+        font-weight: 500;
+        color: #86868b;
+      }
+
+      #pdf-container button,
+      #pdf-container svg,
+      #pdf-container nav,
+      #pdf-container header,
+      #pdf-container .sr-only {
+        display: none !important;
+      }
+
+      .spinner {
+        width: 20px;
+        height: 20px;
+        border: 2px solid rgba(29, 29, 31, 0.2);
+        border-top-color: #1d1d1f;
+        border-radius: 50%;
+        animation: spin 0.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .tab-active {
+        border-bottom: 2px solid #1d1d1f;
+        color: #1d1d1f;
+      }
+      .tab-inactive {
+        color: #86868b;
+        border-bottom: 2px solid transparent;
+      }
+      .tab-inactive:hover {
+        color: #1d1d1f;
+      }
+
+      /* =========================================
+           NATIVE NATIVE PRINT ENGINE (REAL TEXT PDF)
+           ========================================= */
+      @media print {
+        /* Force background colors and dark modes to print */
+        * {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+
+        /* Hide the entire website UI */
+        body * {
+          visibility: hidden;
+        }
+
+        /* Only show the PDF container */
+        #pdf-container,
+        #pdf-container * {
+          visibility: visible;
+        }
+
+        /* Position it perfectly at the top left of the physical page */
+        #pdf-container {
+          position: absolute;
+          left: 0;
+          top: 0;
+          width: 100%;
+          padding: 0;
+          margin: 0;
+          max-width: 100%;
+          box-shadow: none !important;
+          border: none !important;
+        }
+
+        /* Remove scrolling boundaries during print */
+        #preview-section > div {
+          overflow: visible !important;
+          max-height: none !important;
+          background: transparent !important;
+          border: none !important;
+        }
+
+        @page {
+          margin: 20mm 15mm; /* Editorial margins */
+        }
+      }
+    </style>
+  </head>
+  <body
+    class="bg-apple-bg min-h-screen text-apple-text font-sans antialiased selection:bg-gray-200"
+  >
+    <!-- Minimalist Header -->
+    <nav
+      class="w-full bg-apple-bg/80 backdrop-blur-md sticky top-0 z-50 border-b border-apple-border/50 smooth-transition"
+    >
+      <div
+        class="max-w-5xl mx-auto px-6 py-5 flex justify-between items-center"
+      >
+        <div class="flex items-center gap-3">
+          <span
+            class="font-serif italic font-semibold text-2xl tracking-tight text-apple-text"
+            >Claude2PDF.</span
+          >
+        </div>
+        <span
+          class="text-[10px] font-medium text-apple-subtext uppercase tracking-widest border border-apple-border px-3 py-1.5 rounded-full"
+        >
+          Anti-WAF Engine
+        </span>
+      </div>
+    </nav>
+
+    <main class="max-w-3xl mx-auto px-6 py-20">
+      <!-- Hero Section -->
+      <div class="text-center mb-16 fade-in-up" style="animation-delay: 0.1s">
+        <h1
+          class="text-4xl md:text-5xl font-serif font-semibold text-apple-text mb-4 tracking-tight"
+        >
+          Archive intelligently.
+        </h1>
+        <p
+          class="text-apple-subtext text-lg font-light tracking-wide max-w-xl mx-auto"
+        >
+          Transform your conversational data into beautifully formatted,
+          real-text PDF documents. Client-side processing ensures absolute
+          privacy.
+        </p>
+      </div>
+
+      <!-- Input Interface -->
+      <div
+        id="input-section"
+        class="bg-apple-surface rounded-[24px] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-apple-border/50 p-8 md:p-12 mb-10 fade-in-up smooth-transition"
+        style="animation-delay: 0.2s"
+      >
+        <!-- Tabs -->
+        <div class="flex gap-8 border-b border-apple-border/60 mb-8">
+          <button
+            id="tab-url"
+            class="pb-3 text-sm font-medium tracking-wide tab-active smooth-transition"
+          >
+            Auto Extraction
+          </button>
+          <button
+            id="tab-html"
+            class="pb-3 text-sm font-medium tracking-wide tab-inactive smooth-transition"
+          >
+            Failsafe Mode
+          </button>
+        </div>
+
+        <!-- URL Mode -->
+        <form id="form-url" class="flex flex-col gap-6 fade-in-up">
+          <div>
+            <label
+              class="block text-xs font-medium text-apple-subtext uppercase tracking-wider mb-2"
+              >Public Share Link</label
+            >
+            <input
+              type="url"
+              id="url-input"
+              placeholder="https://claude.ai/share/..."
+              class="w-full px-5 py-4 bg-apple-bg rounded-xl border border-apple-border focus:border-apple-text focus:ring-0 outline-none transition-all duration-500 ease-out text-apple-text placeholder-gray-400"
+            />
+          </div>
+          <button
+            type="submit"
+            class="w-full bg-apple-text hover:bg-black text-white font-medium py-4 px-6 rounded-xl shadow-md hover:shadow-lg transform active:scale-[0.98] transition-all duration-500 ease-out tracking-wide"
+          >
+            Extract Conversation
+          </button>
+        </form>
+
+        <!-- HTML Mode -->
+        <form id="form-html" class="flex flex-col gap-6 hidden fade-in-up">
+          <div
+            class="text-sm text-apple-text bg-gray-50 p-5 rounded-xl border border-apple-border/50 font-light leading-relaxed"
+          >
+            <p class="font-medium mb-2">Anthropic proxy block detected?</p>
+            <ol class="list-decimal pl-5 space-y-1 text-apple-subtext">
+              <li>Open your Claude link in a new tab.</li>
+              <li>
+                Press
+                <kbd
+                  class="bg-white px-1.5 py-0.5 border rounded-md shadow-sm text-xs text-apple-text font-mono"
+                  >Cmd/Ctrl + U</kbd
+                >
+                to view the source code.
+              </li>
+              <li>
+                Copy everything (<kbd
+                  class="bg-white px-1.5 py-0.5 border rounded-md shadow-sm text-xs text-apple-text font-mono"
+                  >Cmd/Ctrl + A</kbd
+                >, then
+                <kbd
+                  class="bg-white px-1.5 py-0.5 border rounded-md shadow-sm text-xs text-apple-text font-mono"
+                  >C</kbd
+                >).
+              </li>
+              <li>Paste the raw code below.</li>
+            </ol>
+          </div>
+          <div>
+            <textarea
+              id="html-input"
+              rows="5"
+              placeholder="Paste raw HTML here..."
+              class="w-full px-5 py-4 bg-apple-bg rounded-xl border border-apple-border focus:border-apple-text focus:ring-0 outline-none transition-all duration-500 ease-out font-mono text-[11px] text-apple-subtext resize-none leading-relaxed"
+            ></textarea>
+          </div>
+          <button
+            type="submit"
+            class="w-full bg-apple-text hover:bg-black text-white font-medium py-4 px-6 rounded-xl shadow-md hover:shadow-lg transform active:scale-[0.98] transition-all duration-500 ease-out tracking-wide"
+          >
+            Render from Source
+          </button>
+        </form>
+
+        <!-- Status Area -->
+        <div id="status-area" class="mt-8 hidden fade-in-up">
+          <div id="loading" class="flex flex-col items-center gap-4 py-4">
+            <div class="spinner"></div>
+            <p
+              id="loading-text"
+              class="text-sm text-apple-subtext font-medium tracking-wide"
+            >
+              Initializing extraction...
+            </p>
+          </div>
+          <div
+            id="error-message"
+            class="hidden text-red-600 bg-red-50/50 p-5 rounded-xl text-sm font-medium border border-red-100 text-center leading-relaxed"
+          ></div>
+        </div>
+      </div>
+
+      <!-- Preview Section -->
+      <div id="preview-section" class="hidden fade-in-up">
+        <div
+          class="flex flex-col md:flex-row items-start md:items-center justify-between mb-6 gap-4"
+        >
+          <div>
+            <h2 class="text-xl font-serif font-semibold text-apple-text">
+              Document Preview
+            </h2>
+            <p class="text-sm text-apple-subtext font-light">
+              Your real-text document is ready to export.
+            </p>
+          </div>
+          <button
+            id="btn-download"
+            class="w-full md:w-auto bg-apple-text hover:bg-black text-white font-medium py-3 px-8 rounded-full shadow-md hover:shadow-lg transform active:scale-[0.98] transition-all duration-500 ease-out flex items-center justify-center gap-2 tracking-wide"
+          >
+            <svg
+              class="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+              ></path>
+            </svg>
+            Save as PDF
+          </button>
+        </div>
+
+        <!-- Render Wrapper -->
+        <div
+          class="bg-gray-100/50 p-4 md:p-10 rounded-[24px] border border-apple-border/50 overflow-y-auto max-h-[70vh] shadow-inner smooth-transition"
+        >
+          <div
+            id="pdf-container"
+            class="shadow-sm rounded-lg border border-gray-100"
+          >
+            <!-- Parsed content injected here -->
+          </div>
+        </div>
+
+        <div class="mt-6 text-center">
+          <button
+            id="btn-back"
+            class="text-sm text-apple-subtext hover:text-apple-text transition-colors duration-300 font-medium tracking-wide"
+          >
+            ← Start Over
+          </button>
+        </div>
+      </div>
+    </main>
+    <script>
+      document.addEventListener("DOMContentLoaded", () => {
+        const tabUrl = document.getElementById("tab-url");
+        const tabHtml = document.getElementById("tab-html");
+        const formUrl = document.getElementById("form-url");
+        const formHtml = document.getElementById("form-html");
+        const urlInput = document.getElementById("url-input");
+        const htmlInput = document.getElementById("html-input");
+        const statusArea = document.getElementById("status-area");
+        const loading = document.getElementById("loading");
+        const loadingText = document.getElementById("loading-text");
+        const errorMessage = document.getElementById("error-message");
+        const previewSection = document.getElementById("preview-section");
+        const pdfContainer = document.getElementById("pdf-container");
+        const btnDownload = document.getElementById("btn-download");
+        const btnBack = document.getElementById("btn-back");
+        const inputSection = document.getElementById("input-section");
+
+        function switchTab(mode) {
+          if (mode === "url") {
+            tabUrl.className =
+              "pb-3 text-sm font-medium tracking-wide tab-active smooth-transition";
+            tabHtml.className =
+              "pb-3 text-sm font-medium tracking-wide tab-inactive smooth-transition";
+            formUrl.classList.remove("hidden");
+            formHtml.classList.add("hidden");
+          } else {
+            tabHtml.className =
+              "pb-3 text-sm font-medium tracking-wide tab-active smooth-transition";
+            tabUrl.className =
+              "pb-3 text-sm font-medium tracking-wide tab-inactive smooth-transition";
+            formHtml.classList.remove("hidden");
+            formUrl.classList.add("hidden");
+          }
+          resetState();
+        }
+
+        function parseClaudeHTML(htmlText) {
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(htmlText, "text/html");
+
+          let chatContainer =
+            doc.querySelector("main") ||
+            Array.from(doc.querySelectorAll("div")).find((div) =>
+              div.className.includes("max-w-3xl")
+            );
+
+          if (!chatContainer) {
+            chatContainer = doc.body;
+            if (!chatContainer || chatContainer.innerHTML.trim() === "") {
+              throw new Error(
+                "Unable to locate conversation text. Ensure the link is public and valid."
+              );
+            }
+          }
+
+          const tagsToRemove = [
+            "script",
+            "style",
+            "nav",
+            "header",
+            "footer",
+            "button",
+            "svg",
+            "textarea",
+            "input",
+          ];
+
+          tagsToRemove.forEach((tag) => {
+            chatContainer.querySelectorAll(tag).forEach((el) => el.remove());
+          });
+
+          chatContainer
+            .querySelectorAll(".sr-only, .hidden")
+            .forEach((el) => el.remove());
+
+          const potentialMessages = chatContainer.querySelectorAll(
+            '.flex.flex-col, [data-test-render="true"], .prose'
+          );
+
+          potentialMessages.forEach((msg) => {
+            if (msg.classList.contains("prose") || msg.querySelector(".prose")) {
+              msg.classList.add("chat-message", "message-claude");
+            } else if (
+              msg.textContent.trim().length > 0 &&
+              !msg.classList.contains("chat-message")
+            ) {
+              msg.classList.add("chat-message", "message-user");
+            }
+          });
+
+          pdfContainer.innerHTML = chatContainer.innerHTML;
+
+          pdfContainer.querySelectorAll("*").forEach((el) => {
+            el.removeAttribute("style");
+          });
+        }
+
+        function showLoading(text) {
+          statusArea.classList.remove("hidden");
+          loading.classList.remove("hidden");
+          loading.classList.add("flex");
+          errorMessage.classList.add("hidden");
+          loadingText.innerText = text;
+        }
+
+        function hideLoading() {
+          loading.classList.add("hidden");
+          loading.classList.remove("flex");
+        }
+
+        function showError(msg) {
+          statusArea.classList.remove("hidden");
+          hideLoading();
+          errorMessage.classList.remove("hidden");
+          errorMessage.innerHTML = `<strong>Error:</strong> ${msg}`;
+        }
+
+        function showSuccess() {
+          hideLoading();
+          statusArea.classList.add("hidden");
+          inputSection.classList.add("hidden");
+          previewSection.classList.remove("hidden");
+          previewSection.style.animation = "none";
+          previewSection.offsetHeight;
+          previewSection.style.animation = null;
+        }
+
+        function resetState() {
+          statusArea.classList.add("hidden");
+          errorMessage.classList.add("hidden");
+          hideLoading();
+          pdfContainer.innerHTML = "";
+        }
+
+        tabUrl.addEventListener("click", () => switchTab("url"));
+        tabHtml.addEventListener("click", () => switchTab("html"));
+
+        btnBack.addEventListener("click", () => {
+          previewSection.classList.add("hidden");
+          inputSection.classList.remove("hidden");
+          resetState();
+        });
+
+        formUrl.addEventListener("submit", async (e) => {
+          e.preventDefault();
+
+          const url = urlInput.value.trim();
+          if (!url) {
+            showError("Digite uma URL pública do Claude.");
+            return;
+          }
+
+          resetState();
+          showLoading("Bypass ativo. Renderizando página via servidor seguro...");
+
+          try {
+            const response = await fetch("/api/extract", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ url }),
+            });
+
+            const data = await response.json();
+
+            if (!response.ok || !data.success) {
+              throw new Error(data.error || "Erro desconhecido ao contatar o servidor.");
+            }
+
+            showLoading("Processando estrutura de texto...");
+            parseClaudeHTML(data.html);
+            showSuccess();
+          } catch (err) {
+            hideLoading();
+            errorMessage.classList.remove("hidden");
+            errorMessage.innerHTML = `
+              <span class="block text-red-800 mb-2">Falha na Extração Automática</span>
+              ${err.message}<br/>
+              <button
+                onclick="document.getElementById('tab-html').click()"
+                class="mt-4 bg-red-100 hover:bg-red-200 text-red-800 px-4 py-2 rounded-lg text-xs font-semibold transition-colors duration-300"
+              >
+                Usar Modo Failsafe (Código Fonte)
+              </button>
+            `;
+            statusArea.classList.remove("hidden");
+          }
+        });
+
+        formHtml.addEventListener("submit", (e) => {
+          e.preventDefault();
+
+          const htmlRaw = htmlInput.value.trim();
+
+          if (htmlRaw.length < 100) {
+            showError("Please paste the full source code (Cmd+A, Cmd+C).");
+            return;
+          }
+
+          resetState();
+          showLoading("Parsing raw source code...");
+
+          setTimeout(() => {
+            try {
+              parseClaudeHTML(htmlRaw);
+              showSuccess();
+            } catch (err) {
+              showError(
+                "Failed to interpret HTML. Ensure you copied from the correct page."
+              );
+            }
+          }, 600);
+        });
+
+        btnDownload.addEventListener("click", () => {
+          const originalTitle = document.title;
+          document.title = "Claude_Archive_Document";
+          window.print();
+          document.title = originalTitle;
+        });
+      });
+    </script>
+  </body>
+</html>
