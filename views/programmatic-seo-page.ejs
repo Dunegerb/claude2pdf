@@ -104,14 +104,38 @@
                     <h3 class="text-apple-text font-semibold mb-2">Ready to convert now?</h3>
                     <p class="text-sm">Use our main interface to extract your conversation for free.</p>
                 </div>
-                <a href="/" class="bg-apple-text text-white px-8 py-3 rounded-xl font-medium hover:bg-black transition-all shadow-sm">Start Converting</a>
+                <a href="/" class="bg-apple-text text-white px-8 py-3 rounded-xl font-medium hover:bg-black transition-all shadow-sm">
+                    <%= data.ctaText || 'Start Converting Now' %>
+                </a>
+            </div>
+        </div>
+      </div>
+
+      <!-- How It Works Section -->
+      <div class="mb-20 fade-in-up">
+        <h2 class="text-2xl font-serif font-semibold text-center mb-10">How it works</h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <div class="flex flex-col items-center text-center">
+                <div class="w-12 h-12 bg-black text-white rounded-full flex items-center justify-center font-bold mb-4">1</div>
+                <h3 class="font-semibold mb-2 text-apple-text">Paste Link or HTML</h3>
+                <p class="text-sm text-apple-subtext font-light">Enter your Claude conversation link or paste the raw HTML content.</p>
+            </div>
+            <div class="flex flex-col items-center text-center">
+                <div class="w-12 h-12 bg-black text-white rounded-full flex items-center justify-center font-bold mb-4">2</div>
+                <h3 class="font-semibold mb-2 text-apple-text">Generate Preview</h3>
+                <p class="text-sm text-apple-subtext font-light">Our engine extracts the text and generates a clean, readable preview.</p>
+            </div>
+            <div class="flex flex-col items-center text-center">
+                <div class="w-12 h-12 bg-black text-white rounded-full flex items-center justify-center font-bold mb-4">3</div>
+                <h3 class="font-semibold mb-2 text-apple-text">Download Document</h3>
+                <p class="text-sm text-apple-subtext font-light">Export your chat instantly to PDF and save it permanently on your device.</p>
             </div>
         </div>
       </div>
 
       <!-- FAQ Section -->
       <% if (data.faqs && data.faqs.length > 0) { %>
-      <div class="max-w-3xl mx-auto fade-in-up">
+      <div class="max-w-3xl mx-auto mb-20 fade-in-up">
         <h2 class="text-2xl font-serif font-semibold text-center mb-10">Common Questions</h2>
         <div class="space-y-6">
           <% data.faqs.forEach(faq => { %>
@@ -124,8 +148,25 @@
       </div>
       <% } %>
 
+      <!-- Related Tools Section -->
+      <% if (data.relatedSlugs && data.relatedSlugs.length > 0) { %>
+      <div class="border-t border-apple-border/30 pt-16 mt-20 fade-in-up">
+        <h2 class="text-2xl font-serif font-semibold text-center mb-10">Related Archive Tools</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <% data.relatedSlugs.forEach(relatedSlug => { 
+                const relatedPage = allPages.find(p => p.slug === relatedSlug);
+                if (relatedPage) { %>
+                <a href="/tools/<%= relatedPage.slug %>" class="group bg-apple-surface p-6 rounded-2xl border border-apple-border/20 hover:border-apple-text transition-all shadow-sm hover:shadow-md">
+                    <h3 class="font-semibold text-apple-text group-hover:text-black transition-colors mb-1"><%= relatedPage.title.split('|')[0].trim() %></h3>
+                    <p class="text-xs text-apple-subtext font-light truncate"><%= relatedPage.description %></p>
+                </a>
+            <% } }) %>
+        </div>
+      </div>
+      <% } %>
+
       <!-- Footer CTA -->
-      <footer class="mt-20 pt-10 border-t border-apple-border/30 text-center">
+      <footer class="mt-24 pt-10 border-t border-apple-border/30 text-center">
         <p class="text-xs text-apple-subtext uppercase tracking-widest font-medium">Built by Claude2PDF</p>
         <p class="mt-4 text-sm font-light text-apple-subtext">The safest way to archive your AI insights online.</p>
       </footer>

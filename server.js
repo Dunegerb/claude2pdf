@@ -50,7 +50,10 @@ app.get('/tools/:slug', (req, res) => {
     if (!pageData) {
         return res.status(404).sendFile(path.join(__dirname, 'public', 'index.html'));
     }
-    res.render('programmatic-seo-page', { data: pageData });
+    res.render('programmatic-seo-page', { 
+        data: pageData,
+        allPages: seoPagesData
+    });
 });
 
 // Limita abusos de requisição
