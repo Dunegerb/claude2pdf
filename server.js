@@ -48,7 +48,7 @@ app.get('/tools', (req, res) => {
 app.get('/tools/:slug', (req, res) => {
     const pageData = seoPagesData.find(p => p.slug === req.params.slug);
     if (!pageData) {
-        return res.status(404).sendFile(path.join(__dirname, 'public', 'index.html'));
+        return res.status(404).sendFile(path.join(__dirname, 'public', '404.html'));
     }
     res.render('programmatic-seo-page', { 
         data: pageData,

@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>404 - Page Not Found | Claude2PDF</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: { sans: ["Inter", "sans-serif"], serif: ["Playfair Display", "serif"] },
+            colors: { apple: { bg: "#fbfbfd", surface: "#ffffff", text: "#1d1d1f", subtext: "#86868b", border: "#d2d2d7" } },
+          },
+        },
+      };
+    </script>
+</head>
+<body class="bg-apple-bg min-h-screen text-apple-text font-sans antialiased flex flex-col items-center justify-center">
+    <main class="text-center px-6">
+        <h1 class="text-9xl font-serif font-semibold text-apple-text mb-4 opacity-10">404</h1>
+        <h2 class="text-3xl font-serif font-semibold mb-6">Lost in conversation?</h2>
+        <p class="text-apple-subtext text-lg font-light tracking-wide max-w-md mx-auto leading-relaxed mb-10">
+            The page you are looking for doesn't exist or has moved. Let's get you back to exporting your Claude chats.
+        </p>
+        <div class="flex flex-col sm:flex-row gap-4 justify-center">
+            <a href="/" class="bg-apple-text text-white px-8 py-3 rounded-xl font-medium hover:bg-black transition-all shadow-sm">
+                Back to Home
+            </a>
+            <a href="/tools" class="bg-white text-apple-text border border-apple-border px-8 py-3 rounded-xl font-medium hover:bg-gray-50 transition-all">
+                Browse All Tools
+            </a>
+        </div>
+    </main>
+    <footer class="absolute bottom-10 w-full text-center">
+        <p class="text-xs text-apple-subtext uppercase tracking-widest font-medium">Built by Claude2PDF</p>
+    </footer>
+</body>
+</html>
