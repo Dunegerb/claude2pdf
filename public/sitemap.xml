@@ -12,11 +12,23 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://claude2pdf.up.railway.app/tools/claude-to-pdf-online</loc>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://claude2pdf.up.railway.app/tools/save-claude-as-pdf</loc>
+    <priority>0.7</priority>
+  </url>
+  <url>
     <loc>https://claude2pdf.up.railway.app/tools/export-claude-to-word</loc>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://claude2pdf.up.railway.app/tools/save-claude-chat-history</loc>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://claude2pdf.up.railway.app/tools/download-claude-chat-as-document</loc>
     <priority>0.7</priority>
   </url>
   <url>
@@ -28,23 +40,11 @@
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://claude2pdf.up.railway.app/tools/archive-claude-logs</loc>
-    <priority>0.7</priority>
-  </url>
-  <url>
-    <loc>https://claude2pdf.up.railway.app/tools/claude-copywriting-prompts-pdf</loc>
-    <priority>0.7</priority>
-  </url>
-  <url>
-    <loc>https://claude2pdf.up.railway.app/tools/best-claude-coding-prompts</loc>
-    <priority>0.7</priority>
-  </url>
-  <url>
     <loc>https://claude2pdf.up.railway.app/tools/claude-share-link-extractor</loc>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://claude2pdf.up.railway.app/tools/claude-prompt-engineering-guide-pdf</loc>
+    <loc>https://claude2pdf.up.railway.app/tools/archive-claude-logs</loc>
     <priority>0.7</priority>
   </url>
   <url>
