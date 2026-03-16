@@ -5,5 +5,50 @@
     <lastmod>2026-03-16T00:00:00+00:00</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
+  <url>
+    <loc>https://claude2pdf.up.railway.app/tools</loc>
+    <lastmod>2026-03-16T18:40:00+00:00</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://claude2pdf.up.railway.app/tools/export-claude-to-word</loc>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://claude2pdf.up.railway.app/tools/save-claude-chat-history</loc>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://claude2pdf.up.railway.app/tools/print-claude-conversations</loc>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://claude2pdf.up.railway.app/tools/convert-claude-to-markdown</loc>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://claude2pdf.up.railway.app/tools/archive-claude-logs</loc>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://claude2pdf.up.railway.app/tools/claude-copywriting-prompts-pdf</loc>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://claude2pdf.up.railway.app/tools/best-claude-coding-prompts</loc>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://claude2pdf.up.railway.app/tools/claude-share-link-extractor</loc>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://claude2pdf.up.railway.app/tools/claude-prompt-engineering-guide-pdf</loc>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://claude2pdf.up.railway.app/tools/secure-claude-archive-tool</loc>
+    <priority>0.7</priority>
   </url>
 </urlset>

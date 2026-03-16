@@ -4,6 +4,7 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+const fs = require('fs');
 const path = require('path');
 
 // Ativa o modo invisível do Puppeteer
@@ -11,6 +12,13 @@ puppeteer.use(StealthPlugin());
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Configura EJS como motor de templates
+app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, 'views'));
+
+// Carrega os dados de SEO em memória
+const seoPagesData = JSON.parse(fs.readFileSync(path.join(__dirname, 'data', 'seo-pages.json'), 'utf8'));
 
 // ==========================================
 // CONFIGURAÇÕES GERAIS E SEGURANÇA
@@ -26,6 +34,24 @@ app.use(express.json());
 
 // Serve os arquivos do Frontend automaticamente (o index.html)
 app.use(express.static(path.join(__dirname, 'public')));
+
+// ==========================================
+// ROTAS PROGRAMMATIC SEO
+// ==========================================
+
+// Hub de Ferramentas e Guias
+app.get('/tools', (req, res) => {
+    res.render('tools-index', { pages: seoPagesData });
+});
+
+// Páginas de Ferramentas Específicas
+app.get('/tools/:slug', (req, res) => {
+    const pageData = seoPagesData.find(p => p.slug === req.params.slug);
+    if (!pageData) {
+        return res.status(404).sendFile(path.join(__dirname, 'public', 'index.html'));
+    }
+    res.render('programmatic-seo-page', { data: pageData });
+});
 
 // Limita abusos de requisição
 const limiter = rateLimit({
@@ -105,5 +131,5 @@ app.use((req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`🚀 Servidor e Frontend rodando em: http://localhost:${PORT}`);
+    console.log(`🚀 Servidor e Programmatic SEO ativos em: http://localhost:${PORT}`);
 });

@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    
+    <!-- Primary SEO Meta Tags -->
+    <title><%= data.title %></title>
+    <meta name="title" content="<%= data.title %>" />
+    <meta name="description" content="<%= data.description %>" />
+    <meta name="keywords" content="<%= data.keyword %>, claude to pdf, claude2pdf online, save claude chat" />
+    <link rel="canonical" href="https://claude2pdf.up.railway.app/tools/<%= data.slug %>" />
+    <% if (data.noindex) { %>
+    <meta name="robots" content="noindex, follow" />
+    <% } %>
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="article" />
+    <meta property="og:url" content="https://claude2pdf.up.railway.app/tools/<%= data.slug %>" />
+    <meta property="og:title" content="<%= data.title %>" />
+    <meta property="og:description" content="<%= data.description %>" />
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image" />
+    <meta property="twitter:url" content="https://claude2pdf.up.railway.app/tools/<%= data.slug %>" />
+    <meta property="twitter:title" content="<%= data.title %>" />
+    <meta property="twitter:description" content="<%= data.description %>" />
+
+    <!-- Structured Data (JSON-LD) for FAQ -->
+    <% if (data.faqs && data.faqs.length > 0) { %>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": [
+        <% data.faqs.forEach((faq, index) => { %>
+        {
+          "@type": "Question",
+          "name": "<%= faq.q %>",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "<%= faq.a %>"
+          }
+        }<%= index < data.faqs.length - 1 ? ',' : '' %>
+        <% }) %>
+      ]
+    }
+    </script>
+    <% } %>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: { sans: ["Inter", "sans-serif"], serif: ["Playfair Display", "serif"] },
+            colors: { apple: { bg: "#fbfbfd", surface: "#ffffff", text: "#1d1d1f", subtext: "#86868b", border: "#d2d2d7" } },
+          },
+        },
+      };
+    </script>
+
+    <style>
+      .fade-in-up { animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; opacity: 0; }
+      @keyframes fadeInUp { 0% { opacity: 0; transform: translateY(16px); } 100% { opacity: 1; transform: translateY(0); } }
+    </style>
+  </head>
+  <body class="bg-apple-bg min-h-screen text-apple-text font-sans antialiased">
+    <!-- Header -->
+    <nav class="w-full bg-apple-bg/80 backdrop-blur-md sticky top-0 z-50 border-b border-apple-border/50">
+      <div class="max-w-5xl mx-auto px-6 py-5 flex justify-between items-center">
+        <a href="/" class="font-serif italic font-semibold text-2xl tracking-tight">Claude2PDF.</a>
+        <a href="/tools" class="text-sm font-medium text-apple-subtext hover:text-apple-text transition-colors">All Tools</a>
+      </div>
+    </nav>
+
+    <main class="max-w-4xl mx-auto px-6 py-20">
+      <div class="text-center mb-16 fade-in-up">
+        <nav class="mb-4 text-xs font-medium text-apple-subtext uppercase tracking-widest">
+            <a href="/" class="hover:text-apple-text">Home</a> / <a href="/tools" class="hover:text-apple-text">Tools</a>
+        </nav>
+        <h1 class="text-4xl md:text-5xl font-serif font-semibold text-apple-text mb-6 tracking-tight">
+          <%= data.h1 %>
+        </h1>
+        <p class="text-apple-subtext text-xl font-light tracking-wide max-w-2xl mx-auto leading-relaxed">
+          <%= data.intro %>
+        </p>
+      </div>
+
+      <!-- Use Case Content Card -->
+      <div class="bg-apple-surface rounded-[32px] shadow-[0_8px_30px_rgb(0,0,0,0.02)] border border-apple-border/40 p-10 md:p-14 mb-12 fade-in-up">
+        <h2 class="text-2xl font-serif font-semibold mb-6">Optimized for: <%= data.keyword %></h2>
+        <div class="prose prose-apple max-w-none text-apple-subtext leading-relaxed font-light text-lg">
+            <p class="mb-8"><%= data.useCase %></p>
+            
+            <div class="flex flex-col md:flex-row gap-8 items-center bg-gray-50 p-8 rounded-2xl border border-dashed border-apple-border/60">
+                <div class="flex-1 text-center md:text-left">
+                    <h3 class="text-apple-text font-semibold mb-2">Ready to convert now?</h3>
+                    <p class="text-sm">Use our main interface to extract your conversation for free.</p>
+                </div>
+                <a href="/" class="bg-apple-text text-white px-8 py-3 rounded-xl font-medium hover:bg-black transition-all shadow-sm">Start Converting</a>
+            </div>
+        </div>
+      </div>
+
+      <!-- FAQ Section -->
+      <% if (data.faqs && data.faqs.length > 0) { %>
+      <div class="max-w-3xl mx-auto fade-in-up">
+        <h2 class="text-2xl font-serif font-semibold text-center mb-10">Common Questions</h2>
+        <div class="space-y-6">
+          <% data.faqs.forEach(faq => { %>
+          <div class="bg-apple-surface p-8 rounded-2xl border border-apple-border/30">
+            <h3 class="font-semibold text-apple-text mb-2"><%= faq.q %></h3>
+            <p class="text-apple-subtext font-light leading-relaxed"><%= faq.a %></p>
+          </div>
+          <% }) %>
+        </div>
+      </div>
+      <% } %>
+
+      <!-- Footer CTA -->
+      <footer class="mt-20 pt-10 border-t border-apple-border/30 text-center">
+        <p class="text-xs text-apple-subtext uppercase tracking-widest font-medium">Built by Claude2PDF</p>
+        <p class="mt-4 text-sm font-light text-apple-subtext">The safest way to archive your AI insights online.</p>
+      </footer>
+    </main>
+  </body>
+</html>

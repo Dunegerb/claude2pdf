@@ -1,0 +1,166 @@
+[
+  {
+    "slug": "export-claude-to-word",
+    "keyword": "Export Claude to Word format",
+    "title": "Convert Claude to Word Online | Free Claude2PDF Tool",
+    "description": "Export your Claude AI conversations directly to Microsoft Word format with full formatting preserved. The best free way to archive Claude chats as .docx files.",
+    "h1": "Export Claude AI Chats to Word",
+    "intro": "Need to share your Claude research or coding sessions with colleagues who use Microsoft Word? Our online tool extracts the full conversation and formats it into a clean Word document ready for professional use.",
+    "useCase": "Perfect for legal documentation, academic papers, or corporate reports where Word is the required standard.",
+    "noindex": false,
+    "faqs": [
+      {
+        "q": "Does this retain code blocks in Word?",
+        "a": "Yes, our engine preserves code block formatting and syntax highlighting structure when exporting to Word."
+      },
+      {
+        "q": "Is my data private during Word export?",
+        "a": "Absolutely. Just like our PDF tool, data is processed securely to ensure your AI logs remain confidential."
+      }
+    ]
+  },
+  {
+    "slug": "save-claude-chat-history",
+    "keyword": "Save Claude chat history",
+    "title": "Save Claude Chat History Online | Free Archive Tool",
+    "description": "Never lose an important prompt or response. Save your entire Claude AI chat history to localized, searchable files for offline reading.",
+    "h1": "Save and Archive Your Claude Chat History",
+    "intro": "Claude conversations can be lengthy and full of insights. Don't rely on the web browser alone; save your history locally using our intelligent archiver to create a permanent AI knowledge base.",
+    "useCase": "Ideal for researchers and developers building a personal library of AI-generated insights and architectural decisions.",
+    "noindex": false,
+    "faqs": [
+      {
+        "q": "Can I save multiple chats at once?",
+        "a": "Currently, we focus on high-fidelity single chat archiving to ensure perfect text extraction and formatting."
+      }
+    ]
+  },
+  {
+    "slug": "print-claude-conversations",
+    "keyword": "Print Claude conversations",
+    "title": "Print Claude Conversations Online | Clean Format Tool",
+    "description": "Print your Claude AI chats without cut-offs or browser styling issues. Get a perfectly formatted paper copy of your AI interactions.",
+    "h1": "Print Your Claude AI Conversations",
+    "intro": "Standard browser printing often breaks layout or cuts off long code blocks. Our tool optimizes Claude chats specifically for printing on A4 or Letter sizes.",
+    "useCase": "Essential for offline grading, hard-copy archiving, or meeting preparation.",
+    "noindex": false,
+    "faqs": [
+      {
+        "q": "Does it work with Claude 3.5 Sonnet?",
+        "a": "Yes, our engine supports all Claude variants and formats them perfectly for the physical page."
+      }
+    ]
+  },
+  {
+    "slug": "convert-claude-to-markdown",
+    "keyword": "Convert Claude to Markdown",
+    "title": "Convert Claude to Markdown Online | Free AI Export",
+    "description": "The fastest way to convert your Claude AI sharable links into clean Markdown (.md) files. Retain all your headers, lists, and code blocks.",
+    "h1": "Convert Claude Chats to Markdown",
+    "intro": "Moving your Claude insights into Notion or GitHub? Convert your conversations to pure Markdown to keep your documentation workflow seamless.",
+    "useCase": "Designed for developers and technical writers who live in Markdown-based environments.",
+    "noindex": false,
+    "faqs": [
+      {
+        "q": "Will tables be converted properly?",
+        "a": "Yes, we parse Claude's internal table format into valid GFM (GitHub Flavored Markdown) syntax."
+      }
+    ]
+  },
+  {
+    "slug": "archive-claude-logs",
+    "keyword": "Archive Claude logs",
+    "title": "Archive Claude AI Logs | Secure Personal Storage",
+    "description": "Securely archive your Claude AI chat logs for future reference. Build a searchable database of your AI reasoning and problem-solving steps.",
+    "h1": "Professional Archive for Claude AI Logs",
+    "intro": "Treat your AI conversations like valuable data assets. Our tool helps you archive logs with intelligent metadata extraction for better organization.",
+    "useCase": "Corporate teams and power users who need to audit or review past AI decision-making processes.",
+    "noindex": false,
+    "faqs": [
+      {
+        "q": "Is there a limit to log size?",
+        "a": "Our anti-WAF engine is designed to handle extremely long conversational threads that normal browsers struggle to render."
+      }
+    ]
+  },
+  {
+    "slug": "claude-copywriting-prompts-pdf",
+    "keyword": "Claude copywriting prompts PDF",
+    "title": "Claude Copywriting Prompts PDF | Boost Your ROI",
+    "description": "Download our curated library of Claude copywriting prompts in a beautifully formatted PDF. Level up your marketing game today.",
+    "h1": "Download Claude Copywriting Prompts",
+    "intro": "Need better marketing copy from Claude? We've compiled the world's most effective copywriting prompts into a professional PDF guide.",
+    "useCase": "Marketers and startup founders looking to standardize their high-converting copy output.",
+    "noindex": false,
+    "faqs": [
+      {
+        "q": "Are these prompts tested for Claude 3?",
+        "a": "Every prompt in this PDF library has been verified to produce elite-level copy in Claude 3 Opus and Sonnet."
+      }
+    ]
+  },
+  {
+    "slug": "best-claude-coding-prompts",
+    "keyword": "Best Claude coding prompts",
+    "title": "Best Claude Coding Prompts | Developer Guide PDF",
+    "description": "Unlock the true potential of Claude for software engineering. Download our top coding prompts and export your sessions to PDF.",
+    "h1": "Mastering Claude for Coding",
+    "intro": "Stop struggling with hallucinations. Use our battle-tested coding prompts to build, debug, and refactor faster with Claude AI.",
+    "useCase": "Developers who want to turn their pair-programming sessions into permanent technical documentation.",
+    "noindex": false,
+    "faqs": [
+      {
+        "q": "Do you include prompts for refactoring?",
+        "a": "Yes, the PDF includes dedicated sections for legacy code refactoring and architectural design."
+      }
+    ]
+  },
+  {
+    "slug": "claude-share-link-extractor",
+    "keyword": "Claude share link extractor",
+    "title": "Claude Share Link Extractor | Save Chats Locally",
+    "description": "Extract text data from Claude.ai share links instantly. Convert shared conversations into archival-quality documents.",
+    "h1": "Extract Data from Claude Share Links",
+    "intro": "Someone sent you a Claude share link and you need to keep it? Our extractor pulls the core text and formatting without the web fluff.",
+    "useCase": "Teams collaborating on shared AI outputs who need to preserve the record outside of the cloud.",
+    "noindex": false,
+    "faqs": [
+      {
+        "q": "Can it extract from broken links?",
+        "a": "The link must be active and public for our extractor to bypass the WAF and retrieve the content."
+      }
+    ]
+  },
+  {
+    "slug": "claude-prompt-engineering-guide-pdf",
+    "keyword": "Claude prompt engineering guide PDF",
+    "title": "Claude Prompt Engineering Guide PDF | Advanced Tips",
+    "description": "Master the art of prompting Claude. Download our comprehensive guide and create perfectly formatted PDFs of your progress.",
+    "h1": "Ultimate Claude Prompt Engineering Guide",
+    "intro": "Move beyond simple queries. Learn advanced techniques like chain-of-thought and few-shot prompting specifically optimized for Claude.",
+    "useCase": "Prompt engineers and AI hobbyists who want to document their learning journey.",
+    "noindex": false,
+    "faqs": [
+      {
+        "q": "Is this a free download?",
+        "a": "Yes, this guide is part of our mission to make AI archiving and management accessible to everyone."
+      }
+    ]
+  },
+  {
+    "slug": "secure-claude-archive-tool",
+    "keyword": "Secure Claude archive tool",
+    "title": "Secure Claude Archive Tool | 100% Private Cloud-Free",
+    "description": "Securely archive your sensitive Claude conversations without trusting the cloud. 100% private, client-side processing.",
+    "h1": "The Industry-Standard Secure Claude Archiver",
+    "intro": "For sensitive corporate or personal data, standard cloud exports aren't enough. Our tool ensures your data never leaves your control.",
+    "useCase": "Legal professionals, healthcare researchers, and security-conscious developers.",
+    "noindex": false,
+    "faqs": [
+      {
+        "q": "Does the server see my conversation?",
+        "a": "No. When using Failsafe mode, all text extraction and PDF rendering happens locally in your browser memory."
+      }
+    ]
+  }
+]
