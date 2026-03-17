@@ -235,18 +235,150 @@
         display: none !important;
       }
 
-      .spinner {
+      /* =========================================
+           PREMIUM BREATHING LOADER
+           ========================================= */
+      .system-container {
+        width: 80px;
+        height: auto;
+        position: relative;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
+
+      .breathing-system {
+        width: 100%;
+        height: auto;
+        overflow: visible;
+        animation: system-float 6s cubic-bezier(0.33, 1, 0.68, 1) infinite alternate;
+      }
+
+      .breathing-system path {
+        transform-box: fill-box;
+        transform-origin: center;
+        animation: path-pulse 4s cubic-bezier(0.33, 1, 0.68, 1) infinite alternate;
+        fill: #1d1d1f;
+      }
+
+      .breathing-system path:nth-child(1) { animation-delay: -0.0s; }
+      .breathing-system path:nth-child(2) { animation-delay: -0.4s; }
+      .breathing-system path:nth-child(3) { animation-delay: -0.8s; }
+      .breathing-system path:nth-child(4) { animation-delay: -1.2s; }
+      .breathing-system path:nth-child(5) { animation-delay: -1.6s; }
+      .breathing-system path:nth-child(6) { animation-delay: -2.0s; }
+      .breathing-system path:nth-child(7) { animation-delay: -2.4s; }
+      .breathing-system path:nth-child(8) { animation-delay: -2.8s; }
+
+      @keyframes system-float {
+        0% { transform: translateY(2px) scale(0.98); }
+        100% { transform: translateY(-2px) scale(1.02); }
+      }
+
+      @keyframes path-pulse {
+        0% { opacity: 0.35; transform: scale(0.92); }
+        100% { opacity: 1; transform: scale(1.04); }
+      }
+
+      /* =========================================
+           PREMIUM ANIMATED SUPPORT BUTTON
+           ========================================= */
+      .support-btn-wrap {
+        position: fixed;
+        bottom: 40px;
+        right: 40px;
+        z-index: 100;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        pointer-events: none;
+        opacity: 0;
+        transform: translateY(20px);
+        transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      
+      .support-btn-wrap.is-visible {
+        pointer-events: auto;
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      .btn-support {
+        --ease-morph: cubic-bezier(0.76, 0, 0.24, 1);
+        --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+        --btn-bg: #1D1D1F;
+        --text-color: #F5F5F7;
+        --w: 64px;
+        --h: 3px;
+        --r: 1.5px;
+        --p: 0;
+        --gap: 0px;
+
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--gap);
+        border: none;
+        outline: none;
+        overflow: hidden;
+        background: var(--btn-bg);
+        color: var(--text-color);
+        width: var(--w);
+        height: var(--h);
+        padding: var(--p);
+        border-radius: var(--r);
+        box-shadow: 0 4px 15px rgba(29, 29, 31, 0.1), inset 0 1px 1px rgba(255, 255, 255, 0.05);
+        transition: width .8s var(--ease-morph), height .8s var(--ease-morph), border-radius .8s var(--ease-morph), padding .8s var(--ease-morph), gap .8s var(--ease-morph), box-shadow .8s var(--ease-morph), transform .4s var(--ease-spring);
+        pointer-events: none;
+        cursor: default;
+      }
+
+      .btn-support.is-ready {
+        pointer-events: auto;
+        cursor: pointer;
+        --gap: 12px;
+        box-shadow: 0 12px 30px rgba(29, 29, 31, 0.25), inset 0 1px 1px rgba(255, 255, 255, 0.1);
+      }
+
+      .btn-support.is-ready:hover { transform: scale(1.03); }
+      .btn-support.is-ready:active { transform: scale(0.97); transition-duration: .2s; }
+
+      .icon-wrap-support {
+        display: flex;
+        align-items: center;
+        justify-content: center;
         width: 20px;
         height: 20px;
-        border: 2px solid rgba(29, 29, 31, 0.2);
-        border-top-color: #1d1d1f;
-        border-radius: 50%;
-        animation: spin 0.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+        flex-shrink: 0;
+        transform: scale(0);
+        opacity: 0;
+        will-change: transform, opacity;
       }
-      @keyframes spin {
-        to {
-          transform: rotate(360deg);
-        }
+
+      .text-window-support {
+        --tw: 0px;
+        position: relative;
+        width: var(--tw);
+        height: 20px;
+        overflow: hidden;
+        flex-shrink: 0;
+        transition: width .8s var(--ease-morph);
+      }
+
+      .text-item-support {
+        position: absolute;
+        top: 0;
+        left: 0;
+        white-space: nowrap;
+        color: var(--text-color);
+        font-size: 14px;
+        font-weight: 500;
+        line-height: 20px;
+        letter-spacing: .2px;
+        opacity: 0;
+        transform: translateY(24px) scale(.95);
+        filter: blur(4px);
+        will-change: transform, opacity, filter;
       }
 
       .tab-active {
@@ -441,11 +573,15 @@
 
         <!-- Status Area -->
         <div id="status-area" class="mt-8 hidden fade-in-up">
-          <div id="loading" class="flex flex-col items-center gap-4 py-4">
-            <div class="spinner"></div>
+          <div id="loading" class="flex flex-col items-center gap-6 py-8">
+            <div class="system-container">
+              <svg class="breathing-system" xmlns="http://www.w3.org/2000/svg" width="379" height="284" viewBox="0 0 379 284" fill="none">
+                <path d="M179.911 282.879C172.215 281.088 165.566 276.61 162.129 271.012C160.709 268.699 159.514 268.176 143.6 262.877C103.03 249.443 63.2079 242.352 19.7992 240.934L4.33339 240.412L2.1667 237.949C0.821848 236.382 0 234.74 0 233.247C0 230.56 1.71842 226.978 3.36212 226.306C5.67825 225.485 27.943 225.858 41.0926 226.978C85.8462 230.859 131.87 241.606 168.853 256.757C180.658 261.534 179.836 260.489 165.416 252.503C143.002 240.113 115.956 230.336 88.3864 224.813C64.8516 219.962 50.2824 218.32 26.4487 217.723L7.62082 217.275L15.5405 195.631L20.9946 195.855C28.2418 196.079 46.7709 198.541 59.4722 200.855C67.8402 202.423 97.4268 209.513 102.732 211.304C105.795 212.274 99.5188 209.065 91.5244 205.557C74.415 197.944 49.3858 190.332 28.1671 186.301C23.3107 185.331 19.5003 184.361 19.575 184.062C19.7245 183.838 22.19 179.883 25.0291 175.255C29.1384 168.762 30.6327 166.971 31.9028 166.896C32.8741 166.896 39.8972 168.687 47.5927 170.926C105.272 187.57 154.583 215.111 182.078 245.86C185.589 249.891 188.727 253.1 189.026 253.1C189.325 253.1 192.463 249.816 196.049 245.786C214.354 225.261 243.941 204.886 276.068 190.705C304.459 178.241 344.73 165.105 347.569 167.493C348.988 168.687 358.925 184.062 358.477 184.435C358.328 184.659 354.517 185.48 349.96 186.301C341.666 187.869 317.683 194.063 315.442 195.183C314.769 195.556 311.333 196.75 307.821 197.795C298.108 200.855 280.401 207.946 278.458 209.438C276.964 210.707 277.487 210.632 283.539 208.99C295.792 205.706 315.516 201.378 327.247 199.437C340.62 197.198 361.54 194.959 362.213 195.631C362.511 195.855 364.379 200.855 366.471 206.677L370.282 217.275L353.098 217.723C336.959 218.171 321.718 219.439 309.614 221.38C292.131 224.216 273.378 228.246 266.728 230.709C265.309 231.306 262.918 231.903 261.498 232.127C260.079 232.351 257.912 233.098 256.717 233.695C255.596 234.292 254.027 234.814 253.355 234.814C252.682 234.814 250.814 235.486 249.171 236.307C247.527 237.128 245.958 237.8 245.51 237.8C242.969 237.8 219.957 248.323 209.049 254.443C202.997 257.877 200.532 260.265 205.089 258.324C248.797 239.666 305.281 227.575 355.713 226.082C364.603 225.858 372.747 225.858 373.793 226.157C376.109 226.679 378.052 229.963 378.052 233.322C378.052 234.889 377.305 236.382 375.661 238.173L373.196 240.71L353.77 241.457C343.086 241.905 332.477 242.576 330.235 242.95C327.994 243.397 322.465 244.069 317.907 244.517C308.867 245.338 291.832 247.875 290.786 248.547C290.413 248.771 287.798 249.294 284.959 249.741C274.797 251.309 257.09 255.712 245.808 259.444C240.952 261.086 236.32 262.429 235.573 262.429C234.826 262.429 233.854 262.728 233.406 263.101C232.659 263.773 225.71 266.236 220.63 267.579C218.463 268.176 217.118 269.146 215.998 270.863C212.561 276.386 204.716 281.835 198.066 283.253C192.911 284.372 185.216 284.223 179.911 282.879Z" fill="#1d1d1f"/>
+              </svg>
+            </div>
             <p
               id="loading-text"
-              class="text-sm text-apple-subtext font-medium tracking-wide"
+              class="text-sm text-apple-subtext font-medium tracking-wide animate-pulse"
             >
               Initializing extraction...
             </p>
@@ -639,6 +775,13 @@
           previewSection.style.animation = "none";
           previewSection.offsetHeight;
           previewSection.style.animation = null;
+          
+          // Show premium support button
+          const supportWrap = document.querySelector('.support-btn-wrap');
+          if (supportWrap) {
+            supportWrap.classList.add('is-visible');
+            initSupportButton();
+          }
         }
 
         function resetState() {
@@ -655,6 +798,10 @@
           previewSection.classList.add("hidden");
           inputSection.classList.remove("hidden");
           resetState();
+          
+          // Hide support button
+          const supportWrap = document.querySelector('.support-btn-wrap');
+          if (supportWrap) supportWrap.classList.remove('is-visible');
         });
 
         formUrl.addEventListener("submit", async (e) => {
@@ -736,6 +883,182 @@
           document.title = originalTitle;
         });
       });
+    </script>
+    <div class="support-btn-wrap">
+      <button class="btn-support" id="btn-support" aria-label="Support Claude2PDF">
+        <div class="icon-wrap-support" id="icon-wrap-support">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+          </svg>
+        </div>
+        <div class="text-window-support" id="text-window-support">
+          <span class="text-item-support" id="ts1">Buy me a book</span>
+          <span class="text-item-support" id="ts2">Support Claude2PDF</span>
+        </div>
+      </button>
+    </div>
+
+    <script>
+      let supportInited = false;
+      async function initSupportButton() {
+        if (supportInited) return;
+        supportInited = true;
+
+        const btn = document.getElementById("btn-support");
+        const textWindow = document.getElementById("text-window-support");
+        const t1 = document.getElementById("ts1");
+        const t2 = document.getElementById("ts2");
+        const iconWrap = document.getElementById("icon-wrap-support");
+
+        const easeMorph = "cubic-bezier(0.76, 0, 0.24, 1)";
+        const easeSpring = "cubic-bezier(0.34, 1.56, 0.64, 1)";
+        const padding = 16;
+        const iconW = 20;
+        const safety = 6;
+        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+        if (document.fonts && document.fonts.ready) await document.fonts.ready;
+
+        const rawW1 = Math.ceil(t1.getBoundingClientRect().width) + safety;
+        const rawW2 = Math.ceil(t2.getBoundingClientRect().width) + safety;
+        const pillWidth1 = (padding * 2) + iconW + 12 + rawW1;
+        const pillWidth2 = (padding * 2) + iconW + 12 + rawW2;
+
+        let isClicked = false;
+        let isFirst = true;
+
+        btn.addEventListener("click", async () => {
+          if (isClicked) return;
+          isClicked = true;
+
+          btn.classList.remove("is-ready");
+          btn.style.pointerEvents = "none";
+          btn.style.transition = "transform 0.15s cubic-bezier(0.2, 0, 0, 1), box-shadow 0.15s ease";
+          btn.style.transform = "scale(0.96)";
+          btn.style.boxShadow = "0 4px 15px rgba(29,29,31,0.1), inset 0 1px 1px rgba(255,255,255,0.05)";
+
+          [t1, t2].forEach(t => {
+            t.style.transition = "opacity 0.35s cubic-bezier(0.4, 0, 0.2, 1), filter 0.35s ease, transform 0.4s cubic-bezier(0.4, 0, 0.2, 1)";
+            t.style.opacity = "0";
+            t.style.filter = "blur(4px)";
+            t.style.transform = "translateY(-16px) scale(0.95)";
+          });
+
+          await sleep(150);
+          btn.style.transition = `width 0.6s ${easeMorph}, height 0.6s ${easeMorph}, padding 0.6s ${easeMorph}, border-radius 0.6s ${easeMorph}, transform 0.5s ${easeSpring}, gap 0.6s ${easeMorph}`;
+          btn.style.setProperty("--w", "48px");
+          btn.style.setProperty("--h", "48px");
+          btn.style.setProperty("--p", "0px");
+          btn.style.setProperty("--gap", "0px");
+          textWindow.style.setProperty("--tw", "0px");
+          btn.style.transform = "scale(1)";
+
+          await sleep(600);
+          iconWrap.style.transition = `transform 0.4s ${easeMorph}, opacity 0.4s ${easeMorph}`;
+          iconWrap.style.transform = "scale(0.3)";
+          iconWrap.style.opacity = "0";
+          btn.style.transition = "transform 0.6s cubic-bezier(0.5, 0, 0.2, 1), border-radius 0.6s ease";
+          btn.style.transform = "scale(0.85)";
+          btn.style.borderRadius = "18px 26px 18px 24px"; 
+
+          await sleep(450);
+          btn.style.opacity = "0";
+          btn.style.visibility = "hidden";
+
+          const container = document.createElement("div");
+          container.style.position = "absolute";
+          container.style.top = "50%";
+          container.style.left = "50%";
+          container.style.transform = "translate(-50%, -50%)";
+          container.style.width = "0px";
+          container.style.height = "0px";
+          container.style.pointerEvents = "none";
+          container.style.zIndex = "100";
+          btn.parentElement.appendChild(container);
+
+          const core = document.createElement("div");
+          core.style.position = "absolute";
+          core.style.background = "#1D1D1F";
+          core.style.borderRadius = "50px";
+          core.style.top = "50%";
+          core.style.left = "50%";
+          core.style.transformOrigin = "center";
+          container.appendChild(core);
+
+          core.animate([{ width: "40px", height: "40px", transform: "translate(-50%, -50%)", opacity: 1 }, { width: "0px", height: "0px", transform: "translate(-50%, -50%)", opacity: 0 }], { duration: 1000, fill: "forwards" });
+
+          const arms = [{ angle: 0, stretch: 90, thick: 14, dist: 130, dur: 1000 }, { angle: 42, stretch: 110, thick: 12, dist: 140, dur: 1050 }, { angle: 88, stretch: 85, thick: 15, dist: 120, dur: 950 }, { angle: 137, stretch: 105, thick: 10, dist: 145, dur: 1100 }, { angle: 178, stretch: 120, thick: 13, dist: 155, dur: 1000 }, { angle: 223, stretch: 95, thick: 11, dist: 125, dur: 900 }, { angle: 272, stretch: 100, thick: 14, dist: 135, dur: 1050 }, { angle: 312, stretch: 115, thick: 12, dist: 150, dur: 1150 }];
+          arms.forEach(a => {
+            const el = document.createElement("div");
+            el.style.position = "absolute";
+            el.style.background = "#1D1D1F";
+            el.style.borderRadius = "50px";
+            el.style.top = "50%";
+            el.style.left = "50%";
+            el.style.transformOrigin = "center";
+            container.appendChild(el);
+            el.animate([{ width: "40px", height: "40px", transform: `translate(-50%, -50%) rotate(${a.angle}deg)` }, { width: "0px", height: "0px", transform: `translate(-50%, -50%) rotate(${a.angle}deg) translateX(${a.dist}px)` }], { duration: a.dur, fill: "forwards" });
+          });
+
+          await sleep(1200);
+          window.location.href = "https://buymeacoffee.com/claude2pdf";
+        });
+
+        await sleep(200);
+        btn.style.setProperty("--w", "48px");
+        btn.style.setProperty("--h", "48px");
+        btn.style.setProperty("--r", "24px");
+        btn.style.setProperty("--p", "0px");
+
+        await sleep(600);
+        iconWrap.style.transition = `transform .6s ${easeSpring}, opacity .6s ${easeSpring}`;
+        iconWrap.style.transform = "scale(1)";
+        iconWrap.style.opacity = "1";
+
+        await sleep(700);
+        t1.style.transition = "none";
+        t1.style.transform = "translateY(0) scale(1)";
+        t1.style.opacity = "1";
+        t1.style.filter = "blur(0px)";
+        btn.style.setProperty("--w", pillWidth1 + "px");
+        btn.style.setProperty("--p", `0 ${padding}px`);
+        textWindow.style.setProperty("--tw", rawW1 + "px");
+        btn.classList.add("is-ready");
+
+        let loop = true;
+        while(loop) {
+          await sleep(4000);
+          if (isClicked) break;
+          t1.style.transition = `transform .8s ${easeMorph}, opacity .8s ${easeMorph}, filter .8s ${easeMorph}`;
+          t1.style.transform = "translateY(-24px) scale(.95)";
+          t1.style.opacity = "0"; t1.style.filter = "blur(4px)";
+          
+          t2.style.transform = "translateY(24px) scale(.95)";
+          t2.style.opacity = "0"; t2.style.filter = "blur(4px)";
+          await sleep(100);
+          t2.style.transition = `transform .8s ${easeMorph}, opacity .8s ${easeMorph}, filter .8s ${easeMorph}`;
+          t2.style.transform = "translateY(0) scale(1)";
+          t2.style.opacity = "1"; t2.style.filter = "blur(0px)";
+          btn.style.setProperty("--w", pillWidth2 + "px");
+          textWindow.style.setProperty("--tw", rawW2 + "px");
+
+          await sleep(4000);
+          if (isClicked) break;
+          t2.style.transition = `transform .8s ${easeMorph}, opacity .8s ${easeMorph}, filter .8s ${easeMorph}`;
+          t2.style.transform = "translateY(-24px) scale(.95)";
+          t2.style.opacity = "0"; t2.style.filter = "blur(4px)";
+          
+          t1.style.transform = "translateY(24px) scale(.95)";
+          t1.style.opacity = "0"; t1.style.filter = "blur(4px)";
+          await sleep(100);
+          t1.style.transition = `transform .8s ${easeMorph}, opacity .8s ${easeMorph}, filter .8s ${easeMorph}`;
+          t1.style.transform = "translateY(0) scale(1)";
+          t1.style.opacity = "1"; t1.style.filter = "blur(0px)";
+          btn.style.setProperty("--w", pillWidth1 + "px");
+          textWindow.style.setProperty("--tw", rawW1 + "px");
+        }
+      }
     </script>
   </body>
 </html>
