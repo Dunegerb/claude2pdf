@@ -2,14 +2,20 @@
   {
     "slug": "claude-to-pdf-online",
     "keyword": "Claude to PDF online",
-    "title": "Claude to PDF Online | Free High-Fidelity Conversion",
+    "title": "Convert Claude Chat to PDF Online | Free & Private Tool",
     "description": "The safest way to convert Claude AI conversations to PDF online. Retain all text formatting, code blocks, and chat structure for professional archiving.",
-    "h1": "Convert Claude Conversations to PDF Online",
+    "h1": "Convert Claude Chat to PDF Online",
     "intro": "Native Claude exports often fail to preserve the readability of complex threads. Our online tool is engineered specifically to parse the Claude DOM and reconstruct it into a pristine, editorial-quality PDF document.",
     "useCase": "Best for researchers and developers who need to present AI reasoning steps in a static, professional document format without browser clutter.",
     "ctaText": "Convert Claude Chat to PDF",
-    "relatedSlugs": ["save-claude-as-pdf", "download-claude-chat-as-document", "print-claude-conversations"],
+    "relatedSlugs": ["save-claude-as-pdf", "claude-link-to-pdf", "claude-chat-to-pdf", "export-claude-chat-to-pdf"],
     "noindex": false,
+    "sections": [
+      {
+        "title": "Convert Claude Share Link to PDF",
+        "content": "Have a Claude share link you want to keep forever? Simply paste your claude.ai/share/ URL into our converter and we'll extract the full conversation — including code blocks, formatting, and nested lists — and render it into a professionally styled PDF. No extensions, no sign-ups, and your data never leaves your browser when using Failsafe mode."
+      }
+    ],
     "faqs": [
       {
         "q": "How does this differ from 'Print to PDF'?",
@@ -18,6 +24,18 @@
       {
         "q": "Can I convert Claude 3.5 Sonnet chats?",
         "a": "Yes, our engine is updated daily to support the latest HTML structure of all Anthropic Claude models."
+      },
+      {
+        "q": "Can I convert a Claude share link to PDF?",
+        "a": "Absolutely. Paste any public claude.ai/share/ link into our Auto Extraction tab and we'll fetch, parse, and render the full conversation into a clean PDF — code blocks, lists, and all formatting preserved."
+      },
+      {
+        "q": "How do I export Claude chat to PDF?",
+        "a": "Two ways: paste the public share link for automatic extraction, or use Failsafe Mode by viewing the page source (Ctrl+U), copying the HTML, and pasting it into our tool. Both methods produce identical high-fidelity PDFs."
+      },
+      {
+        "q": "Does Claude2PDF preserve formatting?",
+        "a": "Yes. Our rendering engine preserves headings, bold/italic text, bullet and numbered lists, tables, inline code, and fenced code blocks exactly as they appear in the original Claude conversation."
       }
     ]
   },
@@ -30,12 +48,20 @@
     "intro": "Storage in the cloud is temporary. Saving your Claude chats as local PDF files ensures you have a permanent record of the prompts and responses that shaped your project.",
     "useCase": "Essential for maintaining a personal knowledge base of AI-assisted decision-making and troubleshooting logs.",
     "ctaText": "Save Claude as PDF Now",
-    "relatedSlugs": ["claude-to-pdf-online", "save-claude-chat-history", "archive-claude-logs"],
+    "relatedSlugs": ["claude-to-pdf-online", "claude-link-to-pdf", "save-claude-chat-history", "archive-claude-logs"],
     "noindex": false,
     "faqs": [
       {
         "q": "Is the extraction process private?",
         "a": "Yes. Our tool uses client-side parsing where possible, meaning your sensitive conversation data remains between you and your computer."
+      },
+      {
+        "q": "Can I convert a Claude share link to PDF?",
+        "a": "Yes — just paste the share link into the Auto Extraction tab. Our server-side engine fetches the page, bypasses Cloudflare protections, and delivers the parsed HTML for local rendering into a PDF."
+      },
+      {
+        "q": "Does Claude2PDF preserve formatting?",
+        "a": "Yes. Headings, code blocks, tables, lists, bold, italic — everything is mapped to our custom PDF stylesheet so the output matches the original conversation structure."
       }
     ]
   },
@@ -120,7 +146,7 @@
     "intro": "Developers and technical writers: Move your Claude insights into your documentation pipeline. Convert conversations into high-quality Markdown while preserving GFM-compliant tables and blocks.",
     "useCase": "Speed up your documentation by turning raw AI chats into structured Markdown files for your Git repos or knowledge bases.",
     "ctaText": "Convert Claude to Markdown",
-    "relatedSlugs": ["export-claude-to-word", "claude-share-link-extractor", "best-claude-coding-prompts"],
+    "relatedSlugs": ["export-claude-to-word", "claude-share-link-extractor", "claude-chat-to-pdf"],
     "noindex": false,
     "faqs": [
       {
@@ -138,12 +164,22 @@
     "intro": "Sharing links is easy, but archiving them is hard. Our extractor parses public Claude share links and provides a clean, text-only or formatted document version of the entire thread.",
     "useCase": "Used by teams to pull actionable data from shared AI conversations into their internal ticketing or management systems.",
     "ctaText": "Extract Claude Link Now",
-    "relatedSlugs": ["convert-claude-to-markdown", "claude-to-pdf-online", "save-claude-chat-history"],
+    "relatedSlugs": ["convert-claude-to-markdown", "claude-to-pdf-online", "claude-link-to-pdf"],
     "noindex": false,
+    "sections": [
+      {
+        "title": "Convert Claude Share Link to PDF",
+        "content": "Once you've extracted the content from a Claude share link, converting it to PDF is just one click away. Our integrated pipeline extracts the raw conversation data and immediately renders it into a beautifully formatted, print-ready PDF — preserving code blocks, lists, headings, and all rich formatting from the original thread."
+      }
+    ],
     "faqs": [
       {
         "q": "Does the link need to be public?",
         "a": "Yes, for automatic extraction to work, the conversation must be shared via a public URL (claude.ai/share/...)."
+      },
+      {
+        "q": "Can I convert a Claude share link to PDF?",
+        "a": "Yes. After extraction, you can instantly render the share link content into a high-fidelity PDF using our built-in converter — no extra steps needed."
       }
     ]
   },
@@ -186,66 +222,108 @@
   {
     "slug": "claude-link-to-pdf",
     "keyword": "Claude link to PDF",
-    "title": "Convert Claude Share Link to PDF | Free Claude2PDF Tool",
-    "description": "Easily convert any public Claude share link to a pristine, securely formatted PDF document. Maintain code blocks, markdown tables, and text structures perfectly.",
-    "h1": "Convert Claude Share Links to PDF",
-    "intro": "Turn a simple Claude share link into a professional document. Our free tool takes the raw data from Claude's public links and safely reformats it into a clean, readable PDF without cloud storage risks.",
-    "useCase": "Ideal for students and professionals who want to document AI interactions seamlessly by just pasting a Claude share link.",
-    "ctaText": "Convert Share Link to PDF",
-    "relatedSlugs": ["claude-to-pdf-online", "claude-chat-to-pdf", "export-claude-chat-to-pdf"],
+    "title": "Claude Link to PDF | Convert Share Links Instantly",
+    "description": "Convert any Claude AI share link to a beautifully formatted PDF. Paste the link, extract the conversation, and download a professional document in seconds.",
+    "h1": "Convert Claude Share Links to PDF Instantly",
+    "intro": "Got a Claude share link you need to preserve? Our converter takes any public claude.ai/share/ URL and transforms it into a clean, editorial-grade PDF — code blocks, formatting, and structure fully intact. No sign-up required.",
+    "useCase": "Ideal for teams sharing Claude outputs via links who need a permanent, offline-readable PDF copy for documentation, compliance, or presentations.",
+    "ctaText": "Convert Link to PDF Now",
+    "relatedSlugs": ["claude-to-pdf-online", "claude-share-link-extractor", "claude-chat-to-pdf", "export-claude-chat-to-pdf"],
     "noindex": false,
+    "sections": [
+      {
+        "title": "Convert Claude Share Link to PDF",
+        "content": "Converting a Claude share link to PDF is effortless with Claude2PDF. Just copy the share URL from Claude, paste it into our Auto Extraction tab, and hit extract. Our engine bypasses Cloudflare protections, fetches the full conversation thread, and renders it into a pixel-perfect PDF document. Every heading, code block, table, and list is preserved with professional-grade typography."
+      }
+    ],
     "faqs": [
       {
         "q": "Can I convert a Claude share link to PDF?",
-        "a": "Yes! Simply paste the public Claude share link into our tool, and we will reconstruct the chat into a perfectly formatted, high-quality PDF ready for download."
+        "a": "Yes — that's exactly what this tool is built for. Paste any claude.ai/share/ link and receive a fully formatted PDF within seconds. The output preserves all code syntax, headings, and rich text formatting."
+      },
+      {
+        "q": "How do I export Claude chat to PDF?",
+        "a": "Paste your Claude share link into the Auto Extraction tab, or use Failsafe Mode to paste raw HTML. Both paths generate an identical, high-fidelity PDF you can download instantly."
       },
       {
         "q": "Does Claude2PDF preserve formatting?",
-        "a": "Absolutely. Our engine utilizes a custom CSS parser designed specifically to maintain code blocks, unordered lists, mathematical formulas, and tables just as they appear in Claude."
+        "a": "Yes. Our custom rendering engine maps every element — code blocks, nested lists, tables, bold, italic, and headings — to a purpose-built PDF stylesheet that mirrors the original Claude conversation."
+      },
+      {
+        "q": "Do I need to install an extension?",
+        "a": "No. Claude2PDF is a fully web-based tool. Just open the site, paste your link, and download. There's nothing to install or configure."
       }
     ]
   },
   {
     "slug": "claude-chat-to-pdf",
     "keyword": "Claude chat to PDF",
-    "title": "Claude Chat to PDF | Quick & Clean PDF Export",
-    "description": "Transform your Claude AI chats to PDF online. Protect your intellectual property by securely archiving your interactions into unalterable PDF files.",
-    "h1": "Transform Your Claude Chat to PDF",
-    "intro": "Your Claude chat history holds valuable reasoning and problem-solving data. Using our tool, you can export these interactions into reliable PDF documents for offline archiving or sharing.",
-    "useCase": "Essential for researchers comparing AI reasoning steps across different sessions, requiring a reliable offline format.",
-    "ctaText": "Export Claude Chat",
-    "relatedSlugs": ["claude-link-to-pdf", "export-claude-chat-to-pdf", "archive-claude-logs"],
+    "title": "Claude Chat to PDF | Free Online Converter Tool",
+    "description": "Convert Claude AI chat conversations to beautifully formatted PDF documents. Free, private, and optimized for code blocks, tables, and long threads.",
+    "h1": "Turn Any Claude Chat into a PDF Document",
+    "intro": "Whether it's a brainstorming session, a coding walkthrough, or a research deep-dive — our converter turns your Claude chats into professional PDF documents that look exactly like the original conversation, optimized for reading and printing.",
+    "useCase": "Perfect for developers archiving code-heavy Claude sessions, students saving research conversations, and teams preserving project-critical AI outputs as permanent records.",
+    "ctaText": "Convert Chat to PDF",
+    "relatedSlugs": ["claude-to-pdf-online", "claude-link-to-pdf", "export-claude-chat-to-pdf", "save-claude-as-pdf"],
     "noindex": false,
+    "sections": [
+      {
+        "title": "Convert Claude Share Link to PDF",
+        "content": "Have someone share a Claude conversation with you? You can convert their share link directly to a PDF without needing access to their account. Our tool fetches the public conversation data, parses the full thread, and generates a download-ready PDF with all formatting intact — including inline code, fenced code blocks, and structured lists."
+      }
+    ],
     "faqs": [
       {
+        "q": "Can I convert a Claude share link to PDF?",
+        "a": "Yes. Paste the share link into our converter, and we'll extract and render the entire conversation into a clean PDF — no account access needed."
+      },
+      {
         "q": "How do I export Claude chat to PDF?",
-        "a": "You can export your Claude chat by generating a public link within Claude, or by copying the raw HTML. Paste it into Claude2PDF, generate the preview, and save it as a local PDF document."
+        "a": "Use our Auto Extraction mode with a Claude share link, or paste the page source code into Failsafe Mode. Both methods produce a downloadable, professionally formatted PDF."
       },
       {
         "q": "Does Claude2PDF preserve formatting?",
-        "a": "Absolutely. Our engine utilizes a custom CSS parser designed specifically to maintain code blocks, unordered lists, mathematical formulas, and tables just as they appear in Claude."
+        "a": "Absolutely. Code blocks retain syntax structure, headings maintain hierarchy, tables stay aligned, and bulleted lists render cleanly — exactly matching the original Claude output."
+      },
+      {
+        "q": "Is there a limit on conversation length?",
+        "a": "No. Our engine handles conversations of any length, including multi-hour sessions with hundreds of messages and large code outputs."
       }
     ]
   },
   {
     "slug": "export-claude-chat-to-pdf",
     "keyword": "Export Claude chat to PDF",
-    "title": "Export Claude Chat to PDF | Free Secure Tool",
-    "description": "Export your active or archived Claude AI chats directly to PDF. Experience no format loss, perfect code wrapping, and a clean editorial design.",
-    "h1": "Export Claude Chat to PDF Effortlessly",
-    "intro": "Forget messy copy-pasting. Easily export your Claude chat to PDF with a single click. Our client-side rendering engine guarantees privacy while delivering a perfectly formatted document.",
-    "useCase": "Perfect for technical teams exporting detailed troubleshooting sessions to attach to Jira or GitHub issues.",
+    "title": "Export Claude Chat to PDF | One-Click Conversation Export",
+    "description": "Export your Claude AI conversations to PDF with a single click. Professional formatting, full code block support, and zero data collection.",
+    "h1": "Export Claude Conversations to PDF in One Click",
+    "intro": "Exporting Claude chats shouldn't require technical knowledge. Our one-click export tool handles everything — from fetching the conversation data to rendering a publication-ready PDF with proper typography, code highlighting, and page breaks.",
+    "useCase": "Built for professionals who need to attach AI-assisted research, code reviews, or strategic analysis to formal reports and project documentation.",
     "ctaText": "Export to PDF Now",
-    "relatedSlugs": ["claude-chat-to-pdf", "claude-to-pdf-online", "print-claude-conversations"],
+    "relatedSlugs": ["claude-to-pdf-online", "claude-chat-to-pdf", "claude-link-to-pdf", "export-claude-to-word"],
     "noindex": false,
+    "sections": [
+      {
+        "title": "Convert Claude Share Link to PDF",
+        "content": "Exporting starts with a share link. Click the share button in your Claude conversation, copy the generated URL, and paste it into our tool. Within seconds, you'll have a polished PDF export of the entire thread — complete with user prompts styled as distinct message blocks and Claude's responses rendered with editorial-quality typography."
+      }
+    ],
     "faqs": [
       {
-        "q": "How do I export Claude chat to PDF?",
-        "a": "You can export your Claude chat by generating a public link within Claude, or by copying the raw HTML. Paste it into Claude2PDF, generate the preview, and save it as a local PDF document."
+        "q": "Can I convert a Claude share link to PDF?",
+        "a": "Yes — that's the primary workflow. Share your Claude conversation, copy the link, paste it here, and download the PDF. The entire process takes under 30 seconds."
       },
       {
-        "q": "Can I convert a Claude share link to PDF?",
-        "a": "Yes! Simply paste the public Claude share link into our tool, and we will reconstruct the chat into a perfectly formatted, high-quality PDF ready for download."
+        "q": "How do I export Claude chat to PDF?",
+        "a": "Step 1: Generate a share link from Claude. Step 2: Paste it into Claude2PDF. Step 3: Preview and download. If the automatic extraction is blocked, use our Failsafe Mode with the page source code."
+      },
+      {
+        "q": "Does Claude2PDF preserve formatting?",
+        "a": "Yes. Our PDF engine preserves all Claude formatting: code blocks with proper indentation, markdown headers, numbered and bulleted lists, tables, and inline code spans."
+      },
+      {
+        "q": "Is my data safe during export?",
+        "a": "Yes. The PDF rendering happens entirely in your browser. We don't store, log, or transmit your conversation content. In Failsafe Mode, your data never even reaches our server."
       }
     ]
   }

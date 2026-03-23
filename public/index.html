@@ -17,13 +17,13 @@
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://claude2pdf.up.railway.app/" />
-    <meta property="og:title" content="Claude to PDF Online | Free Claude2PDF AI Tool" />
+    <meta property="og:title" content="Convert Claude Chat to PDF Online | Free & Private Tool" />
     <meta property="og:description" content="Use Claude2PDF online to convert your Claude AI conversations into beautifully formatted PDFs in seconds. The #1 free claude to pdf online AI tool with client-side privacy." />
 
     <!-- Twitter -->
     <meta property="twitter:card" content="summary_large_image" />
     <meta property="twitter:url" content="https://claude2pdf.up.railway.app/" />
-    <meta property="twitter:title" content="Claude to PDF Online | Free Claude2PDF AI Tool" />
+    <meta property="twitter:title" content="Convert Claude Chat to PDF Online | Free & Private Tool" />
     <meta property="twitter:description" content="Use Claude2PDF online to convert your Claude AI conversations into beautifully formatted PDFs in seconds. The #1 free claude to pdf online AI tool with client-side privacy." />
 
     <!-- Structured Data (JSON-LD) -->
@@ -44,7 +44,7 @@
     }
     </script>
 
-    <!-- Google Fonts for Editorial Luxury Feel & New PDF Design -->
+    <!-- Google Fonts for Editorial Luxury Feel -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -107,8 +107,9 @@
       }
 
       /* =========================================
-           NEW PDF RENDER ENGINE (LUXURY STYLE)
+           PDF RENDER ENGINE (NEW EDITORIAL TEMPLATE)
            ========================================= */
+
       #pdf-container {
         background: #F3F3F2;
         width: 680px;
@@ -118,7 +119,6 @@
         border-radius: 0;
         overflow: hidden;
         font-family: 'Albert Sans', sans-serif;
-        margin: 0 auto;
       }
 
       /* --- Header / watermark card --- */
@@ -190,14 +190,17 @@
         flex-direction: column;
       }
 
-      /* BASE: .chat-message */
+      /* =========================================
+           BASE: .chat-message
+           ========================================= */
       #pdf-container .chat-message {
         margin-bottom: 28px;
         width: 100%;
-        word-wrap: break-word;
       }
 
-      /* USER: .chat-message.message-user */
+      /* =========================================
+           USER: .chat-message.message-user
+           ========================================= */
       #pdf-container .chat-message.message-user {
         background: #ffffff;
         border-radius: 8px;
@@ -216,7 +219,9 @@
         display: block;
       }
 
-      /* AI: .chat-message.message-claude */
+      /* =========================================
+           AI: .chat-message.message-claude
+           ========================================= */
       #pdf-container .chat-message.message-claude {
         display: block;
         background: transparent;
@@ -231,6 +236,7 @@
         line-height: 1.75;
       }
 
+      /* Force ALL descendants of AI message to use Hedvig */
       #pdf-container .chat-message.message-claude *:not(pre):not(code) {
         font-family: 'Hedvig Letters Serif', serif !important;
       }
@@ -294,8 +300,27 @@
         color: inherit;
       }
 
+      /* Fallback styles for elements outside message wrappers */
+      #pdf-container table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 2em 0;
+        font-size: 0.9em;
+        page-break-inside: avoid;
+      }
+      #pdf-container th,
+      #pdf-container td {
+        border-bottom: 1px solid rgba(0,0,0,0.12);
+        padding: 1rem 0.5rem;
+        text-align: left;
+      }
+      #pdf-container th {
+        font-weight: 500;
+        color: #86868b;
+      }
+
       #pdf-container button,
-      #pdf-container svg:not(.pdf-header *),
+      #pdf-container svg,
       #pdf-container nav,
       #pdf-container header,
       #pdf-container .sr-only {
@@ -468,27 +493,23 @@
       }
 
       /* =========================================
-           NATIVE NATIVE PRINT ENGINE (REAL TEXT PDF)
+           PRINT ENGINE
            ========================================= */
       @media print {
-        /* Force background colors and dark modes to print */
         * {
           -webkit-print-color-adjust: exact !important;
           print-color-adjust: exact !important;
         }
 
-        /* Hide the entire website UI */
         body * {
           visibility: hidden;
         }
 
-        /* Only show the PDF container */
         #pdf-container,
         #pdf-container * {
           visibility: visible;
         }
 
-        /* Position it perfectly at the top left of the physical page */
         #pdf-container {
           position: absolute;
           left: 0;
@@ -499,9 +520,9 @@
           max-width: 100%;
           box-shadow: none !important;
           border: none !important;
+          border-radius: 0 !important;
         }
 
-        /* Remove scrolling boundaries during print */
         #preview-section > div {
           overflow: visible !important;
           max-height: none !important;
@@ -510,7 +531,7 @@
         }
 
         @page {
-          margin: 20mm 15mm; /* Editorial margins */
+          margin: 20mm 15mm;
         }
       }
     </style>
@@ -685,42 +706,6 @@
         </div>
       </div>
 
-      <!-- Convert Claude Share Link to PDF Information -->
-      <div class="mt-20 fade-in-up">
-        <h2 class="text-3xl font-serif font-semibold text-apple-text mb-6">
-          Convert Claude Share Link to PDF
-        </h2>
-        <div class="bg-apple-surface rounded-[24px] shadow-sm border border-apple-border/50 p-8 md:p-12">
-          <p class="text-apple-subtext text-lg leading-relaxed font-light mb-6">
-            Documenting AI-driven projects often requires you to convert a Claude share link to PDF to create a lasting, offline record of your AI insights. With our engine, you can bypass clunky printing methods and use the actual public link to instantly generate a precise, editorial-quality PDF.
-          </p>
-          <p class="text-apple-subtext text-lg leading-relaxed font-light mb-6">
-            Simply grab your public Claude share link and paste it into the converter above. Our text extraction engine will parse the raw structure, preserving every list, bold tag, and code block, ensuring zero loss of formatting fidelity. Let the platform handle the technical heavy lifting while you focus on extracting actionable value from your AI chats.
-          </p>
-        </div>
-      </div>
-
-      <!-- General FAQs -->
-      <div class="mt-20 mb-10 fade-in-up">
-        <h2 class="text-3xl font-serif font-semibold text-apple-text mb-10 text-center">
-          Frequently Asked Questions
-        </h2>
-        <div class="grid grid-cols-1 gap-6 max-w-2xl mx-auto">
-          <div class="bg-apple-surface rounded-[20px] p-8 border border-apple-border/50">
-            <h3 class="font-semibold text-apple-text mb-3 text-lg">Can I convert a Claude share link to PDF?</h3>
-            <p class="text-apple-subtext font-light leading-relaxed">Yes! By pasting any public Claude share link into our auto-extraction tool, our service will instantly convert the structured conversation into a clean, downloadable PDF document.</p>
-          </div>
-          <div class="bg-apple-surface rounded-[20px] p-8 border border-apple-border/50">
-            <h3 class="font-semibold text-apple-text mb-3 text-lg">How do I export Claude chat to PDF?</h3>
-            <p class="text-apple-subtext font-light leading-relaxed">Simply click "Share" on your Claude chat to generate a public link, or copy its raw HTML. Paste that into Claude2PDF, generate the real-time preview, and save it as a PDF effortlessly.</p>
-          </div>
-          <div class="bg-apple-surface rounded-[20px] p-8 border border-apple-border/50">
-            <h3 class="font-semibold text-apple-text mb-3 text-lg">Does Claude2PDF preserve formatting?</h3>
-            <p class="text-apple-subtext font-light leading-relaxed">Yes. Our custom PDF rendering engine carefully maintains all Markdown styling elements, accurately converting tables, unordered lists, and monospace code blocks directly into the final PDF output without any breakage.</p>
-          </div>
-        </div>
-      </div>
-
       <!-- Preview Section -->
       <div id="preview-section" class="hidden fade-in-up">
         <div
@@ -840,6 +825,7 @@
             "header",
             "footer",
             "button",
+            "svg",
             "textarea",
             "input",
           ];
@@ -847,9 +833,6 @@
           tagsToRemove.forEach((tag) => {
             chatContainer.querySelectorAll(tag).forEach((el) => el.remove());
           });
-          
-          // Custom SVG removal (except inside the header if it existed, but we generate it anyway)
-          chatContainer.querySelectorAll("svg").forEach((el) => el.remove());
 
           chatContainer
             .querySelectorAll(".sr-only, .hidden")
@@ -870,34 +853,47 @@
             }
           });
 
-          // Clean inline styles
-          chatContainer.querySelectorAll("*").forEach((el) => {
+          // Inject content into the container
+          pdfContainer.innerHTML = chatContainer.innerHTML;
+
+          pdfContainer.querySelectorAll("*").forEach((el) => {
             el.removeAttribute("style");
           });
 
-          // Extract title if possible
-          let pageTitle = doc.title || "Claude Session Archive";
-          pageTitle = pageTitle.replace(" - Claude", "").trim();
-          
-          const dateStr = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+          // --- NEW: Extract title from first user message ---
+          const firstUserMsg = pdfContainer.querySelector(".message-user");
+          let chatTitle = "Claude Conversation";
+          if (firstUserMsg) {
+            const raw = firstUserMsg.textContent.trim();
+            chatTitle = raw.length > 60 ? raw.substring(0, 57) + "..." : raw;
+          }
 
+          // --- NEW: Format current date ---
+          const now = new Date();
+          const dateStr = now.toLocaleDateString("en-US", {
+            weekday: "long",
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+          });
+
+          // --- NEW: Create PDF header ---
           const headerHTML = `
             <div class="pdf-header">
               <div class="pdf-header-logo">
-                <img
-                  src="https://raw.githubusercontent.com/Dunegerb/claude2pdf/refs/heads/main/public/mark.svg"
-                  alt="Claude2PDF"
-                  onerror="this.style.opacity='0'"
-                />
+                <img src="/mark.svg" alt="Claude2PDF" onerror="this.style.opacity='0'" />
               </div>
               <div class="pdf-header-info">
-                <span class="pdf-header-title">${pageTitle}</span>
+                <span class="pdf-header-title">${chatTitle}</span>
                 <span class="pdf-header-date">${dateStr}</span>
                 <span class="pdf-header-brand">made by.: claude2pdf.up.railway.app</span>
               </div>
-            </div>`;
-          
-          pdfContainer.innerHTML = headerHTML + '<div class="pdf-body">' + chatContainer.innerHTML + '</div>';
+            </div>
+          `;
+
+          // --- NEW: Wrap existing content in .pdf-body ---
+          const existingContent = pdfContainer.innerHTML;
+          pdfContainer.innerHTML = headerHTML + `<div class="pdf-body">${existingContent}</div>`;
         }
 
         function showLoading(text) {
