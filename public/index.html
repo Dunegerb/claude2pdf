@@ -111,14 +111,20 @@
            ========================================= */
 
       #pdf-container {
-        background: #F3F3F2;
-        width: 680px;
-        min-height: 900px;
-        padding: 0 0 64px 0;
-        box-shadow: none;
-        border-radius: 0;
-        overflow: hidden;
         font-family: 'Albert Sans', sans-serif;
+        padding: 0 0 64px 0;
+        overflow: hidden;
+      }
+
+      /* Screen-only: preview appearance */
+      @media screen {
+        #pdf-container {
+          background: #F3F3F2;
+          width: 680px;
+          min-height: 900px;
+          box-shadow: none;
+          border-radius: 0;
+        }
       }
 
       /* --- Header / watermark card --- */
@@ -501,6 +507,10 @@
           print-color-adjust: exact !important;
         }
 
+        body {
+          background: #F3F3F2 !important;
+        }
+
         body * {
           visibility: hidden;
         }
@@ -515,9 +525,10 @@
           left: 0;
           top: 0;
           width: 100%;
-          padding: 0;
+          padding: 0 0 64px 0;
           margin: 0;
           max-width: 100%;
+          background: transparent;
           box-shadow: none !important;
           border: none !important;
           border-radius: 0 !important;
@@ -838,19 +849,24 @@
             .querySelectorAll(".sr-only, .hidden")
             .forEach((el) => el.remove());
 
-          const potentialMessages = chatContainer.querySelectorAll(
-            '.flex.flex-col, [data-test-render="true"], .prose'
-          );
+          // --- Classify AI messages first (most reliable: .prose) ---
+          chatContainer.querySelectorAll('.prose, [data-test-render="true"]').forEach((msg) => {
+            // Walk up to find the closest flex-col wrapper to tag at the right level
+            const wrapper = msg.closest('.flex.flex-col') || msg;
+            wrapper.classList.add("chat-message", "message-claude");
+          });
 
-          potentialMessages.forEach((msg) => {
-            if (msg.classList.contains("prose") || msg.querySelector(".prose")) {
-              msg.classList.add("chat-message", "message-claude");
-            } else if (
-              msg.textContent.trim().length > 0 &&
-              !msg.classList.contains("chat-message")
-            ) {
-              msg.classList.add("chat-message", "message-user");
-            }
+          // --- Classify user messages (flex-col divs NOT already tagged) ---
+          chatContainer.querySelectorAll('.flex.flex-col').forEach((msg) => {
+            // Skip if already classified
+            if (msg.classList.contains("chat-message")) return;
+            // Skip if it contains a child that is already classified (wrapper div)
+            if (msg.querySelector(".chat-message")) return;
+            // Skip Anthropic disclaimer text
+            const text = msg.textContent.trim();
+            if (!text || text.length === 0) return;
+            if (text.includes("This is a copy of a chat") || text.includes("Content may include")) return;
+            msg.classList.add("chat-message", "message-user");
           });
 
           // Inject content into the container
