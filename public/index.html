@@ -8,8 +8,8 @@
     <meta name="google-site-verification" content="tJJerxy_3ce-QXnEHNrBpRgpdPxU8IvRKSx2yWH4BUQ" />
     <meta name="msvalidate.01" content="PUT_YOUR_CODE_HERE" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <title>Claude2PDF | Convert Claude AI Conversations to PDF Online</title>
-    <meta name="title" content="Claude to PDF Online | Free Claude2PDF AI Tool" />
+    <title>Convert Claude Chat to PDF Online | Free & Private Tool</title>
+    <meta name="title" content="Convert Claude Chat to PDF Online | Free & Private Tool" />
     <meta name="description" content="Use Claude2PDF online to convert your Claude AI conversations into beautifully formatted PDFs in seconds. The #1 free claude to pdf online AI tool with client-side privacy." />
     <meta name="keywords" content="claude2pdf online, claude to pdf online, claude to pdf online ai tool, convert claude conversation to pdf, save claude chat as pdf, export claude to pdf" />
     <link rel="canonical" href="https://claude2pdf.up.railway.app/" />
@@ -44,11 +44,11 @@
     }
     </script>
 
-    <!-- Google Fonts for Editorial Luxury Feel -->
+    <!-- Google Fonts for Editorial Luxury Feel & New PDF Design -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;0,600;1,400&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;0,600;1,400&family=Albert+Sans:wght@300;400;500;600&family=Hedvig+Letters+Serif:opsz@12..24&display=swap"
       rel="stylesheet"
     />
 
@@ -107,130 +107,195 @@
       }
 
       /* =========================================
-           PDF RENDER ENGINE (EDITORIAL STYLE)
+           NEW PDF RENDER ENGINE (LUXURY STYLE)
            ========================================= */
-      @font-face {
-        font-family: "Claude-Title";
-        src: url("https://assets-proxy.anthropic.com/claude-ai/v2/assets/v1/c66fc489e-C-BHYa_K.woff2")
-          format("woff2");
-        font-weight: normal;
-      }
-      @font-face {
-        font-family: "Claude-Text";
-        src: url("https://assets-proxy.anthropic.com/claude-ai/v2/assets/v1/cc27851ad-CFxw3nG7.woff2")
-          format("woff2");
-        font-weight: normal;
-      }
-
       #pdf-container {
-        font-family: "Inter", "Claude-Text", sans-serif;
-        color: #1d1d1f;
-        line-height: 1.7;
-        background-color: #ffffff;
-        padding: 3rem;
-        max-width: 800px;
+        background: #F3F3F2;
+        width: 680px;
+        min-height: 900px;
+        padding: 0 0 64px 0;
+        box-shadow: none;
+        border-radius: 0;
+        overflow: hidden;
+        font-family: 'Albert Sans', sans-serif;
         margin: 0 auto;
       }
 
-      #pdf-container h1,
-      #pdf-container h2,
-      #pdf-container h3 {
-        font-family: "Playfair Display", "Claude-Title", serif;
-        color: #000000;
-        margin-top: 2em;
-        margin-bottom: 0.75em;
+      /* --- Header / watermark card --- */
+      #pdf-container .pdf-header {
+        background: #ffffff;
+        border-radius: 8px;
+        margin: 28px 0 0 28px;
+        padding: 18px 22px;
+        display: inline-flex;
+        align-items: center;
+        gap: 16px;
+        border: 1px solid rgba(0,0,0,0.08);
+        box-shadow: none;
+      }
+
+      #pdf-container .pdf-header-logo {
+        width: 40px;
+        height: 40px;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      #pdf-container .pdf-header-logo img {
+        width: 40px;
+        height: 40px;
+        object-fit: contain;
+        filter: grayscale(100%) contrast(1.1);
+      }
+
+      #pdf-container .pdf-header-info {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      #pdf-container .pdf-header-title {
+        font-family: 'Albert Sans', sans-serif;
+        font-size: 13px;
         font-weight: 600;
-        letter-spacing: -0.02em;
+        color: #1a1a1a;
+        letter-spacing: -0.03em;
+        text-transform: uppercase;
+        line-height: 1.2;
       }
 
-      #pdf-container p {
-        margin-bottom: 1.4em;
-        font-weight: 300;
+      #pdf-container .pdf-header-date {
+        font-family: 'Albert Sans', sans-serif;
+        font-size: 10.5px;
+        font-weight: 400;
+        color: #555;
+        letter-spacing: -0.01em;
+        text-transform: uppercase;
       }
 
-      .chat-message {
-        margin-bottom: 2.5rem;
-        clear: both;
+      #pdf-container .pdf-header-brand {
+        font-family: 'Albert Sans', sans-serif;
+        font-size: 9px;
+        font-weight: 400;
+        color: #aaa;
+        letter-spacing: 0.01em;
+      }
+
+      /* --- Conversation body wrapper --- */
+      #pdf-container .pdf-body {
+        padding: 36px 40px 0 40px;
+        display: flex;
+        flex-direction: column;
+      }
+
+      /* BASE: .chat-message */
+      #pdf-container .chat-message {
+        margin-bottom: 28px;
+        width: 100%;
         word-wrap: break-word;
       }
 
-      .message-user {
-        padding-left: 1.5rem;
-        border-left: 2px solid #1d1d1f;
-        font-weight: 500;
-        color: #1d1d1f;
+      /* USER: .chat-message.message-user */
+      #pdf-container .chat-message.message-user {
+        background: #ffffff;
+        border-radius: 8px;
+        padding: 13px 18px;
+        max-width: 68%;
+        margin-left: auto;
+        margin-right: 0;
+        font-family: 'Albert Sans', sans-serif;
+        font-size: 14px;
+        font-weight: 400;
+        color: #1a1a1a;
+        letter-spacing: -0.03em;
+        line-height: 1.55;
+        border: 1px solid rgba(0,0,0,0.08);
+        box-shadow: none;
+        display: block;
       }
 
-      .message-claude {
-        padding-top: 1rem;
+      /* AI: .chat-message.message-claude */
+      #pdf-container .chat-message.message-claude {
+        display: block;
+        background: transparent;
+        border: none;
+        box-shadow: none;
+        padding: 0;
+        max-width: 100%;
+        font-family: 'Hedvig Letters Serif', serif;
+        font-size: 15px;
+        font-weight: 400;
+        color: #1a1a1a;
+        line-height: 1.75;
       }
 
-      #pdf-container pre {
-        background-color: #1d1d1f !important;
-        color: #f5f5f7 !important;
-        padding: 1.5rem;
-        border-radius: 12px;
-        font-family: "Courier New", Courier, monospace;
-        font-size: 0.85em;
-        margin: 2em 0;
-        white-space: pre-wrap !important;
-        word-wrap: break-word !important;
+      #pdf-container .chat-message.message-claude *:not(pre):not(code) {
+        font-family: 'Hedvig Letters Serif', serif !important;
+      }
+
+      #pdf-container .chat-message.message-claude p {
+        margin-bottom: 1.3em;
+      }
+      #pdf-container .chat-message.message-claude p:last-child {
+        margin-bottom: 0;
+      }
+
+      #pdf-container .chat-message.message-claude h1,
+      #pdf-container .chat-message.message-claude h2,
+      #pdf-container .chat-message.message-claude h3,
+      #pdf-container .chat-message.message-claude h4 {
+        font-weight: 400;
+        color: #1a1a1a;
+        margin: 1.5em 0 0.6em;
+        line-height: 1.3;
+      }
+
+      #pdf-container .chat-message.message-claude ul,
+      #pdf-container .chat-message.message-claude ol {
+        padding-left: 1.4em;
+        margin-bottom: 1.3em;
+      }
+      #pdf-container .chat-message.message-claude li {
+        margin-bottom: 0.4em;
+      }
+
+      #pdf-container .chat-message.message-claude hr {
+        border: none;
+        border-top: 1px solid rgba(0,0,0,0.12);
+        margin: 10px 0 18px;
+      }
+
+      #pdf-container .chat-message.message-claude code {
+        font-family: 'Courier New', monospace !important;
+        background: rgba(0,0,0,0.06);
+        padding: 0.15em 0.4em;
+        border-radius: 4px;
+        font-size: 0.88em;
+      }
+
+      #pdf-container .chat-message.message-claude pre {
+        background: #1a1a1a !important;
+        color: #f5f5f0 !important;
+        padding: 1.2rem 1.4rem;
+        border-radius: 10px;
+        font-family: 'Courier New', monospace !important;
+        font-size: 0.84em;
+        margin: 1.4em 0;
+        white-space: pre-wrap;
+        word-break: break-word;
         page-break-inside: avoid;
       }
 
-      #pdf-container code {
-        font-family: "Courier New", Courier, monospace;
-        background-color: #f5f5f7;
-        padding: 0.2em 0.4em;
-        border-radius: 6px;
-        font-size: 0.9em;
-        color: #1d1d1f;
-      }
-
-      #pdf-container pre code {
-        background-color: transparent;
+      #pdf-container .chat-message.message-claude pre code {
+        background: transparent;
         padding: 0;
         color: inherit;
       }
 
-      #pdf-container ul {
-        list-style-type: none;
-        padding-left: 1.5rem;
-        margin-bottom: 1.5em;
-      }
-      #pdf-container ul li::before {
-        content: "•";
-        color: #86868b;
-        display: inline-block;
-        width: 1em;
-        margin-left: -1em;
-      }
-      #pdf-container ol {
-        list-style-type: decimal;
-        padding-left: 1.5rem;
-        margin-bottom: 1.5em;
-      }
-
-      #pdf-container table {
-        width: 100%;
-        border-collapse: collapse;
-        margin: 2em 0;
-        font-size: 0.9em;
-        page-break-inside: avoid;
-      }
-      #pdf-container th,
-      #pdf-container td {
-        border-bottom: 1px solid #d2d2d7;
-        padding: 1rem 0.5rem;
-        text-align: left;
-      }
-      #pdf-container th {
-        font-weight: 500;
-        color: #86868b;
-      }
-
       #pdf-container button,
-      #pdf-container svg,
+      #pdf-container svg:not(.pdf-header *),
       #pdf-container nav,
       #pdf-container header,
       #pdf-container .sr-only {
@@ -620,6 +685,42 @@
         </div>
       </div>
 
+      <!-- Convert Claude Share Link to PDF Information -->
+      <div class="mt-20 fade-in-up">
+        <h2 class="text-3xl font-serif font-semibold text-apple-text mb-6">
+          Convert Claude Share Link to PDF
+        </h2>
+        <div class="bg-apple-surface rounded-[24px] shadow-sm border border-apple-border/50 p-8 md:p-12">
+          <p class="text-apple-subtext text-lg leading-relaxed font-light mb-6">
+            Documenting AI-driven projects often requires you to convert a Claude share link to PDF to create a lasting, offline record of your AI insights. With our engine, you can bypass clunky printing methods and use the actual public link to instantly generate a precise, editorial-quality PDF.
+          </p>
+          <p class="text-apple-subtext text-lg leading-relaxed font-light mb-6">
+            Simply grab your public Claude share link and paste it into the converter above. Our text extraction engine will parse the raw structure, preserving every list, bold tag, and code block, ensuring zero loss of formatting fidelity. Let the platform handle the technical heavy lifting while you focus on extracting actionable value from your AI chats.
+          </p>
+        </div>
+      </div>
+
+      <!-- General FAQs -->
+      <div class="mt-20 mb-10 fade-in-up">
+        <h2 class="text-3xl font-serif font-semibold text-apple-text mb-10 text-center">
+          Frequently Asked Questions
+        </h2>
+        <div class="grid grid-cols-1 gap-6 max-w-2xl mx-auto">
+          <div class="bg-apple-surface rounded-[20px] p-8 border border-apple-border/50">
+            <h3 class="font-semibold text-apple-text mb-3 text-lg">Can I convert a Claude share link to PDF?</h3>
+            <p class="text-apple-subtext font-light leading-relaxed">Yes! By pasting any public Claude share link into our auto-extraction tool, our service will instantly convert the structured conversation into a clean, downloadable PDF document.</p>
+          </div>
+          <div class="bg-apple-surface rounded-[20px] p-8 border border-apple-border/50">
+            <h3 class="font-semibold text-apple-text mb-3 text-lg">How do I export Claude chat to PDF?</h3>
+            <p class="text-apple-subtext font-light leading-relaxed">Simply click "Share" on your Claude chat to generate a public link, or copy its raw HTML. Paste that into Claude2PDF, generate the real-time preview, and save it as a PDF effortlessly.</p>
+          </div>
+          <div class="bg-apple-surface rounded-[20px] p-8 border border-apple-border/50">
+            <h3 class="font-semibold text-apple-text mb-3 text-lg">Does Claude2PDF preserve formatting?</h3>
+            <p class="text-apple-subtext font-light leading-relaxed">Yes. Our custom PDF rendering engine carefully maintains all Markdown styling elements, accurately converting tables, unordered lists, and monospace code blocks directly into the final PDF output without any breakage.</p>
+          </div>
+        </div>
+      </div>
+
       <!-- Preview Section -->
       <div id="preview-section" class="hidden fade-in-up">
         <div
@@ -739,7 +840,6 @@
             "header",
             "footer",
             "button",
-            "svg",
             "textarea",
             "input",
           ];
@@ -747,6 +847,9 @@
           tagsToRemove.forEach((tag) => {
             chatContainer.querySelectorAll(tag).forEach((el) => el.remove());
           });
+          
+          // Custom SVG removal (except inside the header if it existed, but we generate it anyway)
+          chatContainer.querySelectorAll("svg").forEach((el) => el.remove());
 
           chatContainer
             .querySelectorAll(".sr-only, .hidden")
@@ -767,11 +870,34 @@
             }
           });
 
-          pdfContainer.innerHTML = chatContainer.innerHTML;
-
-          pdfContainer.querySelectorAll("*").forEach((el) => {
+          // Clean inline styles
+          chatContainer.querySelectorAll("*").forEach((el) => {
             el.removeAttribute("style");
           });
+
+          // Extract title if possible
+          let pageTitle = doc.title || "Claude Session Archive";
+          pageTitle = pageTitle.replace(" - Claude", "").trim();
+          
+          const dateStr = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+          const headerHTML = `
+            <div class="pdf-header">
+              <div class="pdf-header-logo">
+                <img
+                  src="https://raw.githubusercontent.com/Dunegerb/claude2pdf/refs/heads/main/public/mark.svg"
+                  alt="Claude2PDF"
+                  onerror="this.style.opacity='0'"
+                />
+              </div>
+              <div class="pdf-header-info">
+                <span class="pdf-header-title">${pageTitle}</span>
+                <span class="pdf-header-date">${dateStr}</span>
+                <span class="pdf-header-brand">made by.: claude2pdf.up.railway.app</span>
+              </div>
+            </div>`;
+          
+          pdfContainer.innerHTML = headerHTML + '<div class="pdf-body">' + chatContainer.innerHTML + '</div>';
         }
 
         function showLoading(text) {

@@ -51,4 +51,16 @@
     <loc>https://claude2pdf.up.railway.app/tools/secure-claude-archive-tool</loc>
     <priority>0.7</priority>
   </url>
+  <url>
+    <loc>https://claude2pdf.up.railway.app/tools/claude-link-to-pdf</loc>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://claude2pdf.up.railway.app/tools/claude-chat-to-pdf</loc>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://claude2pdf.up.railway.app/tools/export-claude-chat-to-pdf</loc>
+    <priority>0.7</priority>
+  </url>
 </urlset>
