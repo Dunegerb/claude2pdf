@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Extraction & Formatting</title>
+  <style>
+    /* Fontes do Framer */
+    @font-face {
+      font-family: "Inter";
+      src: url("https://framerusercontent.com/assets/GrgcKwrN6d3Uz8EwcLHZxwEfC4.woff2") format("woff2");
+      font-display: swap;
+      font-style: normal;
+      font-weight: 400;
+    }
+
+    /* Reset & Estilo Base Apple */
+    :root {
+      --bg-color: #ffffff;
+      --card-bg: #f5f5f7;
+      --text-primary: #1d1d1f;
+      --text-secondary: #86868b;
+      --border-color: rgba(0, 0, 0, 0.04);
+      --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --font-mono: "SF Mono", SFMono-Regular, Consolas, Menlo, monospace;
+      
+      /* Variáveis da Animação do Texto Brilhante (Ajustado para Tema Claro) */
+      --text-color: rgba(120, 120, 120, 0.35);
+      --shine-color: rgb(29, 28, 26);
+      --shine-angle: 105deg;
+      --font-size: 14.5px;
+      --font-weight: 500;
+      --letter-spacing: -0.1px;
+      --line-height: 1.3em;
+      --shine-duration: 2.2s;
+      --shine-delay: -0.738s;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      font-family: var(--font-sans);
+      color: var(--text-primary);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Container do Widget */
+    .widget-wrapper {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 290px;
+    }
+
+    /* Card Principal */
+    .interactive-card {
+      position: relative;
+      width: 290px;
+      height: 290px;
+      background: var(--card-bg);
+      border: 1px solid rgba(0, 0, 0, 0.05);
+      border-radius: 24px;
+      padding: 12px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.015);
+    }
+
+    /* Painéis Internos */
+    .panel {
+      background: #ffffff;
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* Painel de Código (Esquerda) */
+    .code-panel {
+      padding: 12px 10px;
+    }
+
+    .code-viewport {
+      height: 100%;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* Efeito Esfumado (Gradients de Opacidade sobre o Código) */
+    .fade-overlay {
+      position: absolute;
+      left: 0;
+      right: 0;
+      height: 60px;
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    .fade-top {
+      top: 0;
+      background: linear-gradient(to bottom, #ffffff 0%, rgba(255, 255, 255, 0) 100%);
+    }
+
+    .fade-bottom {
+      bottom: 0;
+      background: linear-gradient(to top, #ffffff 0%, rgba(255, 255, 255, 0) 100%);
+    }
+
+    .code-track {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      animation: scrollUp 22s linear infinite;
+    }
+
+    pre {
+      font-family: var(--font-mono);
+      font-size: 8.5px;
+      line-height: 1.45;
+      color: #333333;
+      margin: 0;
+      white-space: pre-wrap;
+    }
+
+    /* Sintaxe Light */
+    .kw { color: #b030b0; }
+    .str { color: #2a8a3e; }
+    .fn { color: #1a5fb4; }
+    .cm { color: #9a9a9a; font-style: italic; }
+
+    /* Painel do Documento (Direita) */
+    .doc-panel {
+      padding: 24px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .doc-line {
+      height: 7px;
+      background-color: #e5e5ea;
+      border-radius: 4px;
+      width: 100%;
+    }
+    .doc-line.short { width: 55%; }
+    .doc-line.medium { width: 85%; }
+    .doc-line.muted { background-color: #f2f2f7; }
+
+    /* Hub da Animação Autoral Centrada */
+    .loader-hub {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 15;
+      width: 68px;
+      height: 68px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.06)) drop-shadow(0 1px 2px rgba(0, 0, 0, 0.02));
+      animation: floatIdle 4s ease-in-out infinite;
+    }
+
+    .loader {
+      display: block;
+      width: 68px;
+      height: 68px;
+      overflow: visible;
+      shape-rendering: geometricPrecision;
+      text-rendering: geometricPrecision;
+    }
+
+    .loader-circle {
+      fill: #ffffff;
+      stroke: #e5e5e5;
+      stroke-width: 1;
+    }
+
+    /* Container do Texto Brilhante */
+    .thinking-container {
+      margin-top: 24px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .shiny-text {
+      display: block;
+      width: 100%;
+      text-align: center;
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .shiny-text__wrap {
+      position: relative;
+      display: inline-block;
+    }
+
+    .shiny-text__base,
+    .shiny-text__shine {
+      font-family: var(--font-sans);
+      font-size: var(--font-size);
+      font-style: normal;
+      font-weight: var(--font-weight);
+      letter-spacing: var(--letter-spacing);
+      line-height: var(--line-height);
+      white-space: nowrap;
+    }
+
+    .shiny-text__base {
+      display: inline-block;
+      color: var(--text-color);
+    }
+
+    .shiny-text__shine {
+      position: absolute;
+      top: 0;
+      left: 0;
+      color: transparent;
+      pointer-events: none;
+      white-space: nowrap;
+      background-image: linear-gradient(
+        var(--shine-angle),
+        transparent 0%,
+        transparent 35%,
+        var(--shine-color) 50%,
+        transparent 65%,
+        transparent 100%
+      );
+      background-size: 200% 100%;
+      background-repeat: no-repeat;
+      background-position: -100% 0%;
+      background-clip: text;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      will-change: background-position;
+      animation: shiny-text-sweep var(--shine-duration) linear infinite;
+      animation-delay: var(--shine-delay);
+    }
+
+    /* Animações CSS */
+    @keyframes scrollUp {
+      0% { transform: translateY(0); }
+      100% { transform: translateY(-50%); }
+    }
+
+    @keyframes floatIdle {
+      0%, 100% { transform: translate(-50%, -50%) translateY(0); }
+      50% { transform: translate(-50%, -50%) translateY(-3px); }
+    }
+
+    @keyframes shiny-text-sweep {
+      0% { background-position: -100% 0%; }
+      100% { background-position: 100% 0%; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="widget-wrapper">
+    <!-- Card Interativo -->
+    <div class="interactive-card">
+      
+      <!-- Esquerda: Código Scrolling com Gradientes -->
+      <div class="panel code-panel">
+        <div class="code-viewport">
+          <div class="fade-overlay fade-top"></div>
+          <div class="fade-overlay fade-bottom"></div>
+          
+          <div class="code-track">
+            <pre>
+<span class="kw">export async</span>
+<span class="kw">function</span>
+clean(payload) {
+  <span class="kw">const</span> nodes =
+  <span class="kw">await</span>
+  fetch(payload);
+  <span class="kw">return</span>
+  nodes.map(n => {
+    <span class="kw">return</span> {
+      type:
+      n.type,
+      text:
+      n.text,
+      cleaned:
+      <span class="kw">true</span>
+    }
+  });
+}
+
+<span class="cm">// Unreadable</span>
+<span class="cm">elements filter</span>
+<span class="kw">function</span>
+<span class="fn">stripNoise</span>() {
+  <span class="kw">return</span> true;
+}</pre>
+
+            <!-- Cópia idêntica para o efeito de loop infinito -->
+            <pre>
+<span class="kw">export async</span>
+<span class="kw">function</span>
+clean(payload) {
+  <span class="kw">const</span> nodes =
+  <span class="kw">await</span>
+  fetch(payload);
+  <span class="kw">return</span>
+  nodes.map(n => {
+    <span class="kw">return</span> {
+      type:
+      n.type,
+      text:
+      n.text,
+      cleaned:
+      <span class="kw">true</span>
+    }
+  });
+}
+
+<span class="cm">// Unreadable</span>
+<span class="cm">elements filter</span>
+<span class="kw">function</span>
+<span class="fn">stripNoise</span>() {
+  <span class="kw">return</span> true;
+}</pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- Direita: Esqueleto de Documento -->
+      <div class="panel doc-panel">
+        <div class="doc-line short"></div>
+        <div class="doc-line medium muted"></div>
+        <div class="doc-line muted"></div>
+        <div class="doc-line medium muted"></div>
+        <div class="doc-line short muted"></div>
+      </div>
+
+      <!-- Hub Central: Loader SVG animado -->
+      <div class="loader-hub">
+        <svg class="loader" viewBox="606 389 69 69" role="img" aria-label="Loader animado" data-duration="2.733333" data-cubic="0.86 0 0.07 1">
+          <rect x="606" y="389" width="69" height="69" fill="none" />
+          <circle class="loader-circle" cx="640.5" cy="423.5" r="29" />
+          <!-- Escala apenas as barras internas. O círculo externo permanece 100% igual. -->
+          <g class="loader-bars" transform="translate(640.5 423.5) scale(0.8) translate(-640.5 -423.5)">
+            <rect id="bar-1" x="635" y="412" width="17" height="3" rx="1.5" fill="#1D1C1A">
+            </rect>
+            <rect id="bar-2" x="630" y="424" width="22" height="3" rx="1.5" fill="#1D1C1A">
+            </rect>
+            <rect id="bar-3" x="635" y="430" width="17" height="3" rx="1.5" fill="#1D1C1A">
+            </rect>
+            <rect id="bar-4" x="630" y="436" width="22" height="3" rx="1.5" fill="#1D1C1A">
+            </rect>
+            <rect id="bar-5" x="630" y="418" width="22" height="3" rx="1.5" fill="#1D1C1A">
+            </rect>
+          </g>
+        </svg>
+      </div>
+
+    </div>
+
+    <!-- Animação do Shiny Text de Carregamento -->
+    <div class="thinking-container">
+      <span class="shiny-text" aria-label="Converting">
+        <span class="shiny-text__wrap">
+          <span class="shiny-text__base">Converting</span>
+          <span class="shiny-text__shine" aria-hidden="true">Converting</span>
+        </span>
+      </span>
+    </div>
+  </div>
+
+  <!-- Fallback JS para navegadores sem suporte nativo a animações SMIL -->
+  <script>
+    (() => {
+      /*
+        Correção pontual: mantém o círculo fixo, o mesmo layout,
+        as mesmas posições-chave e o mesmo texto "Converting".
+        A única mudança é a transição entre frames: removemos os holds/pausas
+        do SMIL e interpolamos continuamente via requestAnimationFrame.
+        As barras internas recebem apenas uma escala visual de 0.9x;
+        o círculo externo permanece com o mesmo tamanho original.
+      */
+      const duration = 2.733333;
+      const sequence = [4, 5, 6, 7, 8, 1, 2, 3];
+      const attrs = ['x', 'y', 'width', 'height', 'rx'];
+
+      const frames = {
+        1: [
+          { x: 626, y: 412, width: 15, height: 3, rx: 1.5 },
+          { x: 626, y: 424, width: 22, height: 3, rx: 1.5 },
+          { x: 636, y: 430, width: 12, height: 3, rx: 1.5 },
+          { x: 645, y: 436, width: 7,  height: 3, rx: 1.5 },
+          { x: 626, y: 418, width: 29, height: 3, rx: 1.5 }
+        ],
+        2: [
+          { x: 629, y: 412, width: 15, height: 3, rx: 1.5 },
+          { x: 633, y: 424, width: 22, height: 3, rx: 1.5 },
+          { x: 636, y: 430, width: 12, height: 3, rx: 1.5 },
+          { x: 629, y: 436, width: 13, height: 3, rx: 1.5 },
+          { x: 626, y: 418, width: 29, height: 3, rx: 1.5 }
+        ],
+        3: [
+          { x: 629, y: 412, width: 23, height: 3, rx: 1.5 },
+          { x: 630, y: 424, width: 22, height: 3, rx: 1.5 },
+          { x: 637, y: 430, width: 8,  height: 3, rx: 1.5 },
+          { x: 638, y: 436, width: 5,  height: 3, rx: 1.5 },
+          { x: 626, y: 418, width: 29, height: 3, rx: 1.5 }
+        ],
+        4: [
+          { x: 635, y: 412, width: 17, height: 3, rx: 1.5 },
+          { x: 630, y: 424, width: 22, height: 3, rx: 1.5 },
+          { x: 635, y: 430, width: 17, height: 3, rx: 1.5 },
+          { x: 630, y: 436, width: 22, height: 3, rx: 1.5 },
+          { x: 630, y: 418, width: 22, height: 3, rx: 1.5 }
+        ],
+        5: [
+          { x: 630, y: 422, width: 21, height: 3, rx: 1.5 },
+          { x: 632, y: 422, width: 17, height: 3, rx: 1.5 },
+          { x: 632, y: 422, width: 17, height: 3, rx: 1.5 },
+          { x: 630, y: 422, width: 21, height: 3, rx: 1.5 },
+          { x: 627, y: 421, width: 27, height: 4, rx: 2   }
+        ],
+        6: [
+          { x: 630, y: 422, width: 21, height: 3, rx: 1.5 },
+          { x: 632, y: 422, width: 17, height: 3, rx: 1.5 },
+          { x: 632, y: 422, width: 17, height: 3, rx: 1.5 },
+          { x: 630, y: 422, width: 21, height: 3, rx: 1.5 },
+          { x: 627, y: 415, width: 27, height: 4, rx: 2   }
+        ],
+        7: [
+          { x: 630, y: 422, width: 21, height: 3, rx: 1.5 },
+          { x: 632, y: 422, width: 17, height: 3, rx: 1.5 },
+          { x: 632, y: 422, width: 17, height: 3, rx: 1.5 },
+          { x: 632, y: 428, width: 16, height: 3, rx: 1.5 },
+          { x: 627, y: 415, width: 27, height: 4, rx: 2   }
+        ],
+        8: [
+          { x: 630, y: 422, width: 21, height: 3, rx: 1.5 },
+          { x: 632, y: 422, width: 17, height: 3, rx: 1.5 },
+          { x: 642, y: 433, width: 7,  height: 3, rx: 1.5 },
+          { x: 632, y: 428, width: 16, height: 3, rx: 1.5 },
+          { x: 627, y: 415, width: 27, height: 4, rx: 2   }
+        ]
+      };
+
+      const bars = Array.from(document.querySelectorAll('[id^="bar-"]'));
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      function mod(n, m) {
+        return ((n % m) + m) % m;
+      }
+
+      function catmullRom(p0, p1, p2, p3, t) {
+        const t2 = t * t;
+        const t3 = t2 * t;
+        return 0.5 * (
+          (2 * p1) +
+          (-p0 + p2) * t +
+          (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
+          (-p0 + 3 * p1 - 3 * p2 + p3) * t3
+        );
+      }
+
+      function clampBetween(value, a, b) {
+        const min = Math.min(a, b);
+        const max = Math.max(a, b);
+        return Math.max(min, Math.min(max, value));
+      }
+
+      function frameAt(sequenceIndex) {
+        return frames[sequence[mod(sequenceIndex, sequence.length)]];
+      }
+
+      function draw(progress) {
+        const total = sequence.length;
+        const scaled = progress * total;
+        const index = Math.floor(scaled) % total;
+        const local = scaled - Math.floor(scaled);
+
+        const previous = frameAt(index - 1);
+        const current = frameAt(index);
+        const next = frameAt(index + 1);
+        const after = frameAt(index + 2);
+
+        bars.forEach((bar, barIndex) => {
+          attrs.forEach((attr) => {
+            const p0 = previous[barIndex][attr];
+            const p1 = current[barIndex][attr];
+            const p2 = next[barIndex][attr];
+            const p3 = after[barIndex][attr];
+            const value = clampBetween(catmullRom(p0, p1, p2, p3, local), p1, p2);
+            bar.setAttribute(attr, Number(value.toFixed(3)));
+          });
+        });
+      }
+
+      function render(now) {
+        const progress = ((now / 1000) % duration) / duration;
+        draw(progress);
+        requestAnimationFrame(render);
+      }
+
+      // Estado inicial exato do frame 4. O círculo permanece o <circle> original, fixo.
+      draw(0);
+      if (!reduceMotion) requestAnimationFrame(render);
+    })();
+  </script>
+
+  <script src="/parser.js"></script>
+  <script>
+    (() => {
+      const keys = window.Claude2PDF.STORAGE_KEYS;
+      const startedAt = Date.now();
+      const minimumVisibleMs = 700;
+
+      function finishWithRedirect(path) {
+        const elapsed = Date.now() - startedAt;
+        const wait = Math.max(0, minimumVisibleMs - elapsed);
+        setTimeout(() => { window.location.href = path; }, wait);
+      }
+
+      async function convert() {
+        const sourceUrl = sessionStorage.getItem(keys.sourceUrl);
+        if (!sourceUrl) {
+          window.location.href = '/';
+          return;
+        }
+
+        try {
+          const response = await fetch('/api/extract', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: sourceUrl })
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok || !data.success || !data.html) {
+            throw new Error(data.error || 'Unable to extract this public share link.');
+          }
+
+          const conversation = window.Claude2PDF.parseAIConversationHTML(data.html, sourceUrl);
+          sessionStorage.setItem(keys.conversation, JSON.stringify(conversation));
+          sessionStorage.removeItem(keys.error);
+          finishWithRedirect('/preview.html');
+        } catch (error) {
+          sessionStorage.setItem(keys.error, error.message || 'Conversion failed.');
+          finishWithRedirect('/');
+        }
+      }
+
+      convert();
+    })();
+  </script>
+</body>
+</html>

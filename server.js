@@ -69,8 +69,25 @@ const limiter = rateLimit({
 app.post('/api/extract', limiter, async (req, res) => {
     const { url } = req.body;
 
-    if (!url || typeof url !== 'string' || !url.startsWith('https://claude.ai/share/')) {
-        return res.status(400).json({ error: "URL inválida. Use apenas links públicos do Claude." });
+    const supportedHosts = [
+        'claude.ai',
+        'chatgpt.com',
+        'gemini.google.com',
+        'grok.com'
+    ];
+
+    let parsedUrl;
+    try {
+        parsedUrl = new URL(url);
+    } catch (error) {
+        return res.status(400).json({ error: "URL inválida. Use um link público de Claude, ChatGPT, Gemini ou Grok." });
+    }
+
+    const isSupportedHost = supportedHosts.includes(parsedUrl.hostname);
+    const isSupportedPath = parsedUrl.pathname.includes('/share/');
+
+    if (!url || typeof url !== 'string' || parsedUrl.protocol !== 'https:' || !isSupportedHost || !isSupportedPath) {
+        return res.status(400).json({ error: "URL inválida. Use links públicos /share/ de Claude, ChatGPT, Gemini ou Grok." });
     }
 
     let browser;
@@ -105,7 +122,7 @@ app.post('/api/extract', limiter, async (req, res) => {
 
         // Aguarda a div contendo o chat aparecer (passando do Cloudflare)
         try {
-            await page.waitForSelector('.prose, main', { timeout: 15000 });
+            await page.waitForSelector('.prose, main, [data-message-author-role], share-turn-viewer, [data-testid=\"user-message\"], [data-testid=\"assistant-message\"]', { timeout: 18000 });
         } catch (e) {
             console.log("[-] Timeout aguardando as classes. Tentando extrair mesmo assim.");
         }
@@ -113,7 +130,7 @@ app.post('/api/extract', limiter, async (req, res) => {
         const html = await page.content();
 
         if (html.includes("Just a moment...") || html.includes("Cloudflare")) {
-            throw new Error("O link foi protegido pelo Cloudflare e não pôde ser extraído automaticamente. Use o modo Failsafe colando o HTML da página.");
+            throw new Error("O link foi protegido ou não pôde ser extraído automaticamente. Tente novamente com um link público /share/.");
         }
 
         console.log(`[+] Extração concluída com sucesso.`);

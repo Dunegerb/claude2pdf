@@ -1,4 +1,5 @@
-User-agent: *
+User-agent: OAI-SearchBot
 Allow: /
 
-Sitemap: https://claude2pdf.up.railway.app/sitemap.xml
+User-agent: *
+Allow: /
