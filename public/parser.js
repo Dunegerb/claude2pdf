@@ -17,6 +17,16 @@
     return (node && node.textContent ? node.textContent : '').replace(/\s+/g, ' ').trim();
   }
 
+  function dedupeTextKey(value) {
+    return String(value || '')
+      .normalize('NFKC')
+      .replace(/[\u200B-\u200D\uFEFF]/g, '')
+      .replace(/\s+/g, ' ')
+      .replace(/[\u00A0]/g, ' ')
+      .trim()
+      .toLowerCase();
+  }
+
   function htmlOf(node) {
     return node ? node.innerHTML.trim() : '';
   }
@@ -220,43 +230,86 @@
       return '';
     }
 
-    function addClaudeCandidate(role, node) {
-      if (!role || !node || isInsideNoise(node)) return;
+    function addClaudeCandidate(role, node, options = {}) {
+      if (!role || !node || isInsideNoise(node)) return false;
       const text = textOf(node);
-      if (isClaudeNoise(text)) return;
-      if (text.length < 1) return;
+      if (isClaudeNoise(text)) return false;
+      if (text.length < 1) return false;
 
-      // Prefer the smallest content root when Claude wraps the same content in many flex containers.
+      // Prefer the smallest visible content root. Claude often nests identical
+      // assistant content in both a role wrapper and a .prose/data-test-render node.
       const contentNode = (() => {
         if (role === 'assistant') {
           return node.querySelector && (
+            node.matches?.('[data-test-render="true"], .prose, [class*="font-claude-message"], [class*="markdown"]') ? node : null
+          ) || (node.querySelector && (
             node.querySelector('[data-test-render="true"]') ||
             node.querySelector('.prose') ||
+            node.querySelector('[class*="font-claude-message"]') ||
             node.querySelector('[class*="markdown"]')
-          ) || node;
+          )) || node;
         }
         return node.querySelector && (
+          node.matches?.('[class*="font-user-message"], .whitespace-pre-wrap') ? node : null
+        ) || (node.querySelector && (
           node.querySelector('[class*="font-user-message"]') ||
           node.querySelector('.whitespace-pre-wrap')
-        ) || node;
+        )) || node;
       })();
 
       const finalText = textOf(contentNode);
-      if (isClaudeNoise(finalText)) return;
+      if (isClaudeNoise(finalText)) return false;
 
-      const duplicate = messages.some((message) => {
-        const a = (message.text || '').replace(/\s+/g, ' ').trim();
-        const b = finalText.replace(/\s+/g, ' ').trim();
-        return message.role === role && (a === b || (a.length > 30 && b.includes(a)) || (b.length > 30 && a.includes(b)));
+      const message = makeMessage(role, contentNode);
+      const key = dedupeTextKey(message.text || finalText);
+      if (!key) return false;
+
+      const duplicateIndex = messages.findIndex((entry) => {
+        if (entry.role !== role) return false;
+        const existingKey = entry.key || dedupeTextKey(entry.message?.text || '');
+        if (!existingKey) return false;
+
+        // Exact/near exact duplicated text.
+        if (existingKey === key) return true;
+        if (key.length > 40 && existingKey.length > 40 && (existingKey.includes(key) || key.includes(existingKey))) return true;
+
+        // Same DOM subtree captured through nested Claude wrappers.
+        const existingNode = entry.contentNode;
+        if (existingNode && contentNode && existingNode !== contentNode) {
+          if (existingNode.contains?.(contentNode) || contentNode.contains?.(existingNode)) return true;
+        }
+        return false;
       });
-      if (duplicate) return;
+
+      if (duplicateIndex !== -1) {
+        const existing = messages[duplicateIndex];
+        const existingTextLength = (existing.message?.text || '').length;
+        const newTextLength = (message.text || '').length;
+
+        // If the previous capture was a larger wrapper and this one is the cleaner
+        // markdown/content node, replace it. Otherwise keep the first occurrence.
+        if (newTextLength > 0 && newTextLength <= existingTextLength && existing.contentNode?.contains?.(contentNode)) {
+          messages[duplicateIndex] = {
+            role,
+            node: contentNode,
+            contentNode,
+            orderNode: existing.orderNode || node,
+            key,
+            message
+          };
+        }
+        return false;
+      }
 
       messages.push({
         role,
         node: contentNode,
-        orderNode: node,
-        message: makeMessage(role, contentNode)
+        contentNode,
+        orderNode: options.orderNode || node,
+        key,
+        message
       });
+      return true;
     }
 
     // 1) Current Claude shared pages: user and assistant text usually carry these font classes.
@@ -264,18 +317,31 @@
       addClaudeCandidate(roleForClaudeNode(node), node);
     });
 
+    const hasExplicitUser = messages.some(m => m.role === 'user');
+    const hasExplicitAssistant = messages.some(m => m.role === 'assistant');
+
     // 2) Older/newer Claude variants: assistant markdown is often plain .prose or data-test-render.
-    Array.from(root.querySelectorAll('.prose, [data-test-render="true"], [class*="markdown"]')).forEach((node) => {
-      if (node.closest('[class*="font-user-message"]')) return;
-      addClaudeCandidate('assistant', node);
-    });
+    // Use this only when the explicit Claude assistant selector did not already work;
+    // otherwise the same response is captured twice.
+    if (!hasExplicitAssistant) {
+      Array.from(root.querySelectorAll('.prose, [data-test-render="true"], [class*="markdown"]')).forEach((node) => {
+        if (node.closest('[class*="font-user-message"]')) return;
+        addClaudeCandidate('assistant', node);
+      });
+    }
 
     // 3) Shared pages sometimes expose role attributes after hydration.
-    Array.from(root.querySelectorAll('[data-message-author-role], [data-turn]')).forEach((node) => {
-      const rawRole = node.getAttribute('data-message-author-role') || node.getAttribute('data-turn') || '';
-      const role = /user/i.test(rawRole) ? 'user' : (/assistant|claude/i.test(rawRole) ? 'assistant' : '');
-      addClaudeCandidate(role, node);
-    });
+    // Only use this as a gap-filler so it cannot duplicate explicit Claude captures.
+    if (!hasExplicitUser || !hasExplicitAssistant) {
+      Array.from(root.querySelectorAll('[data-message-author-role], [data-turn]')).forEach((node) => {
+        const rawRole = node.getAttribute('data-message-author-role') || node.getAttribute('data-turn') || '';
+        const role = /user/i.test(rawRole) ? 'user' : (/assistant|claude/i.test(rawRole) ? 'assistant' : '');
+        if (!role) return;
+        if (role === 'user' && hasExplicitUser) return;
+        if (role === 'assistant' && hasExplicitAssistant) return;
+        addClaudeCandidate(role, node);
+      });
+    }
 
     // 4) Conservative legacy fallback from the original project. Use only when no explicit Claude messages were found.
     if (!messages.length) {
@@ -290,6 +356,11 @@
     }
 
     const orderedMessages = messages
+      .filter((entry, index, list) => {
+        const key = entry.key || dedupeTextKey(entry.message?.text || '');
+        if (!key) return false;
+        return list.findIndex(other => other.role === entry.role && (other.key || dedupeTextKey(other.message?.text || '')) === key) === index;
+      })
       .sort((a, b) => {
         if (a.orderNode === b.orderNode) return 0;
         return a.orderNode.compareDocumentPosition(b.orderNode) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
