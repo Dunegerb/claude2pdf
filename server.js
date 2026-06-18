@@ -105,10 +105,19 @@ app.post('/api/extract', limiter, async (req, res) => {
 
         const page = await browser.newPage();
 
-        // Otimização: Bloqueia recursos inúteis para focar só no texto
+        const provider = parsedUrl.hostname.includes('claude.ai') ? 'claude'
+            : parsedUrl.hostname.includes('chatgpt.com') ? 'chatgpt'
+            : parsedUrl.hostname.includes('gemini.google.com') ? 'gemini'
+            : parsedUrl.hostname.includes('grok.com') ? 'grok'
+            : 'unknown';
+
+        // Otimização conservadora: bloquear CSS/fontes quebrou a hidratação de
+        // algumas páginas públicas do ChatGPT/Gemini. Mantemos imagens e mídia
+        // bloqueadas, mas permitimos stylesheet/font para preservar o DOM real.
         await page.setRequestInterception(true);
         page.on('request', (req) => {
-            if (['image', 'stylesheet', 'font', 'media'].includes(req.resourceType())) {
+            const blocked = ['image', 'media'];
+            if (blocked.includes(req.resourceType())) {
                 req.abort();
             } else {
                 req.continue();
@@ -122,11 +131,6 @@ app.post('/api/extract', limiter, async (req, res) => {
 
         // Aguarda conteúdo REAL do chat. Não usamos `main` aqui porque, no Claude,
         // ele aparece antes das respostas da IA serem hidratadas.
-        const provider = parsedUrl.hostname.includes('claude.ai') ? 'claude'
-            : parsedUrl.hostname.includes('chatgpt.com') ? 'chatgpt'
-            : parsedUrl.hostname.includes('gemini.google.com') ? 'gemini'
-            : parsedUrl.hostname.includes('grok.com') ? 'grok'
-            : 'unknown';
 
         const selectorsByProvider = {
             claude: '[class*="font-user-message"], [class*="font-claude-message"], .prose, [data-test-render="true"]',
@@ -136,29 +140,31 @@ app.post('/api/extract', limiter, async (req, res) => {
         };
 
         try {
-            await page.waitForSelector(selectorsByProvider[provider] || 'body', { timeout: 22000 });
+            await page.waitForSelector(selectorsByProvider[provider] || 'body', { timeout: 30000 });
         } catch (e) {
             console.log(`[-] Timeout aguardando conteúdo de ${provider}. Tentando extrair mesmo assim.`);
         }
 
         // Dá tempo para frameworks client-side finalizarem renderização e força lazy content.
         try {
+            await page.waitForNetworkIdle({ idleTime: 700, timeout: 10000 }).catch(() => {});
             await page.evaluate(async () => {
                 await new Promise((resolve) => {
                     let totalHeight = 0;
-                    const distance = 700;
+                    const distance = 650;
+                    const maxHeight = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
                     const timer = setInterval(() => {
                         window.scrollBy(0, distance);
                         totalHeight += distance;
-                        if (totalHeight >= document.body.scrollHeight) {
+                        if (totalHeight >= maxHeight + distance) {
                             clearInterval(timer);
                             window.scrollTo(0, 0);
                             resolve();
                         }
-                    }, 120);
+                    }, 140);
                 });
             });
-            await new Promise(resolve => setTimeout(resolve, 900));
+            await new Promise(resolve => setTimeout(resolve, provider === 'chatgpt' || provider === 'gemini' ? 1600 : 900));
         } catch (e) {}
 
         const html = await page.content();

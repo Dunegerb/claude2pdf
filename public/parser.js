@@ -378,37 +378,109 @@
 
   function parseChatGPTHTML(htmlText, sourceUrl = '') {
     const doc = parseDocument(htmlText);
+    const root = doc.querySelector('main') || doc.body;
     const messages = [];
-    const sections = Array.from(doc.querySelectorAll('section[data-turn], [data-testid^="conversation-turn-"]'));
+    const seen = new Set();
 
-    sections.forEach((section) => {
+    function isChatGPTNoise(text) {
+      const value = String(text || '').replace(/\s+/g, ' ').trim();
+      if (!value) return true;
+      const lower = value.toLowerCase();
+      return [
+        'this is a copy of a shared chatgpt conversation',
+        'report conversation',
+        'error loading app failed to fetch template',
+        'failed to fetch template retry',
+        'chatgpt can make mistakes',
+        'terms of use',
+        'privacy policy'
+      ].some(noise => lower.includes(noise));
+    }
+
+    function add(role, nodeOrHTML, extra = {}) {
+      if (!role || !nodeOrHTML) return false;
+      const message = makeMessage(role, nodeOrHTML, extra);
+      if (isChatGPTNoise(message.text)) return false;
+      const key = `${role}:${dedupeTextKey(message.text)}`;
+      if (!dedupeTextKey(message.text) || seen.has(key)) return false;
+      seen.add(key);
+      messages.push(message);
+      return true;
+    }
+
+    function bestNode(nodes) {
+      const clean = Array.from(nodes || []).filter(Boolean).filter(node => !isChatGPTNoise(textOf(node)));
+      if (!clean.length) return null;
+      return clean.sort((a, b) => textOf(b).length - textOf(a).length)[0];
+    }
+
+    const turnSections = Array.from(root.querySelectorAll('section[data-turn], [data-testid^="conversation-turn-"]'));
+
+    turnSections.forEach((section) => {
       const roleAttr = section.getAttribute('data-turn') || '';
-      const roleNode = section.querySelector('[data-message-author-role]');
-      const roleValue = roleAttr || (roleNode && roleNode.getAttribute('data-message-author-role')) || '';
+      const explicitRoleNode = section.querySelector('[data-message-author-role]');
+      const roleValue = roleAttr || (explicitRoleNode && explicitRoleNode.getAttribute('data-message-author-role')) || '';
       const role = /user/i.test(roleValue) ? 'user' : (/assistant/i.test(roleValue) ? 'assistant' : '');
       if (!role) return;
 
       if (role === 'user') {
-        const content = section.querySelector('[data-message-author-role="user"] .whitespace-pre-wrap') ||
-          section.querySelector('.user-message-bubble-color > div') ||
-          section.querySelector('[data-message-author-role="user"]') || section;
-        messages.push(makeMessage('user', content));
-      } else {
-        const content = section.querySelector('[data-message-author-role="assistant"] .markdown') ||
-          section.querySelector('.markdown.prose') ||
-          section.querySelector('.markdown') ||
-          section.querySelector('[data-message-author-role="assistant"]') || section;
-        messages.push(makeMessage('assistant', content));
+        const content = bestNode([
+          ...section.querySelectorAll('[data-message-author-role="user"] .whitespace-pre-wrap'),
+          ...section.querySelectorAll('.user-message-bubble-color .whitespace-pre-wrap'),
+          ...section.querySelectorAll('.user-message-bubble-color > div'),
+          ...section.querySelectorAll('[data-message-author-role="user"]')
+        ]) || section;
+        add('user', content);
+        return;
       }
+
+      const thoughtNode = Array.from(section.querySelectorAll('button, [class*="thought"], [class*="reason"]'))
+        .find(node => /thought for/i.test(textOf(node)));
+      const thought = thoughtNode ? textOf(thoughtNode).replace(/\s+/g, ' ').trim() : '';
+
+      // ChatGPT can render transient assistant snippets and the final message in the
+      // same turn. Prefer data-turn-start-message when present, otherwise take the
+      // longest markdown block inside the assistant role node.
+      const assistantRoleNodes = Array.from(section.querySelectorAll('[data-message-author-role="assistant"]'));
+      const startMessageNodes = assistantRoleNodes.filter(node => node.getAttribute('data-turn-start-message') === 'true');
+      const pool = (startMessageNodes.length ? startMessageNodes : assistantRoleNodes).flatMap((node) => [
+        ...node.querySelectorAll('.markdown.prose, .markdown-new-styling, .markdown'),
+        node
+      ]);
+      const content = bestNode(pool) || bestNode(section.querySelectorAll('.markdown.prose, .markdown-new-styling, .markdown'));
+      if (content) add('assistant', content, { thought });
     });
 
     if (!messages.length) {
-      Array.from(doc.querySelectorAll('[data-message-author-role]')).forEach((node) => {
+      const roleNodes = Array.from(root.querySelectorAll('[data-message-author-role]'));
+      roleNodes.forEach((node) => {
         const attr = node.getAttribute('data-message-author-role') || '';
         const role = /user/i.test(attr) ? 'user' : (/assistant/i.test(attr) ? 'assistant' : '');
         if (!role) return;
-        const content = role === 'assistant' ? (node.querySelector('.markdown') || node) : (node.querySelector('.whitespace-pre-wrap') || node);
-        messages.push(makeMessage(role, content));
+        const content = role === 'assistant'
+          ? bestNode(node.querySelectorAll('.markdown.prose, .markdown-new-styling, .markdown')) || node
+          : bestNode(node.querySelectorAll('.whitespace-pre-wrap, .user-message-bubble-color > div')) || node;
+        add(role, content);
+      });
+    }
+
+    // Last-resort fallback for partially serialized shared pages where the visible
+    // DOM is present in the raw HTML string but not selectable after parsing.
+    if (!messages.length && /data-message-author-role=/i.test(htmlText)) {
+      const sectionsRaw = String(htmlText).split(/<section\b/i).slice(1).map(chunk => '<section' + chunk.split(/<\/section>/i)[0] + '</section>');
+      sectionsRaw.forEach((sectionHTML) => {
+        const roleMatch = sectionHTML.match(/data-turn=["'](user|assistant)["']|data-message-author-role=["'](user|assistant)["']/i);
+        const role = roleMatch ? (roleMatch[1] || roleMatch[2] || '').toLowerCase() : '';
+        if (!role) return;
+        const scratch = parseDocument(sectionHTML);
+        if (role === 'user') {
+          const content = bestNode(scratch.querySelectorAll('.whitespace-pre-wrap, .user-message-bubble-color > div, [data-message-author-role="user"]')) || scratch.body;
+          add('user', content);
+        } else {
+          const content = bestNode(scratch.querySelectorAll('.markdown.prose, .markdown-new-styling, .markdown, [data-message-author-role="assistant"]')) || scratch.body;
+          const thoughtNode = Array.from(scratch.querySelectorAll('button')).find(node => /thought for/i.test(textOf(node)));
+          add('assistant', content, { thought: thoughtNode ? textOf(thoughtNode) : '' });
+        }
       });
     }
 
@@ -423,24 +495,82 @@
 
   function parseGeminiHTML(htmlText, sourceUrl = '') {
     const doc = parseDocument(htmlText);
+    const root = doc.querySelector('share-viewer') || doc.querySelector('.share-landing-page_content') || doc.body;
     const messages = [];
-    const turns = Array.from(doc.querySelectorAll('share-turn-viewer, .share-turn-viewer'));
+    const seen = new Set();
+
+    function isGeminiNoise(text) {
+      const value = String(text || '').replace(/\s+/g, ' ').trim();
+      if (!value) return true;
+      const lower = value.toLowerCase();
+      return [
+        'google privacy policy',
+        'google terms of service',
+        'your privacy & gemini apps',
+        'gemini may display inaccurate info',
+        'sign in',
+        'copy prompt',
+        'report',
+        'opens in a new window'
+      ].some(noise => lower === noise || lower.includes(noise));
+    }
+
+    function add(role, nodeOrHTML) {
+      if (!role || !nodeOrHTML) return false;
+      const message = makeMessage(role, nodeOrHTML);
+      if (isGeminiNoise(message.text)) return false;
+      const key = `${role}:${dedupeTextKey(message.text)}`;
+      if (!dedupeTextKey(message.text) || seen.has(key)) return false;
+      seen.add(key);
+      messages.push(message);
+      return true;
+    }
+
+    function bestNode(nodes) {
+      const clean = Array.from(nodes || []).filter(Boolean).filter(node => !isGeminiNoise(textOf(node)));
+      if (!clean.length) return null;
+      return clean.sort((a, b) => textOf(b).length - textOf(a).length)[0];
+    }
+
+    const turns = Array.from(root.querySelectorAll('share-turn-viewer, .share-turn-viewer'));
 
     turns.forEach((turn) => {
-      const userContent = turn.querySelector('.query-text') || turn.querySelector('.query-text-line') || turn.querySelector('user-query');
-      if (userContent) messages.push(makeMessage('user', userContent));
+      const userContent = bestNode([
+        ...turn.querySelectorAll('.query-text-line'),
+        ...turn.querySelectorAll('.query-text p'),
+        ...turn.querySelectorAll('.query-text'),
+        ...turn.querySelectorAll('[data-test-id="luminous-collapsed-bubble"]')
+      ]);
+      if (userContent) add('user', userContent);
 
-      const assistantContent = turn.querySelector('message-content .markdown-main-panel') ||
-        turn.querySelector('.markdown-main-panel') ||
-        turn.querySelector('structured-content-container .markdown') ||
-        turn.querySelector('response-container message-content');
-      if (assistantContent) messages.push(makeMessage('assistant', assistantContent));
+      const assistantContent = bestNode([
+        ...turn.querySelectorAll('message-content .markdown-main-panel'),
+        ...turn.querySelectorAll('.markdown-main-panel'),
+        ...turn.querySelectorAll('[inline-copy-host]'),
+        ...turn.querySelectorAll('structured-content-container .markdown'),
+        ...turn.querySelectorAll('response-container message-content')
+      ]);
+      if (assistantContent) add('assistant', assistantContent);
     });
 
     if (!messages.length) {
-      Array.from(doc.querySelectorAll('.query-text, .query-text-line, .markdown-main-panel')).forEach((node) => {
-        const isAssistant = node.classList.contains('markdown-main-panel') || !!node.closest('message-content, structured-content-container');
-        messages.push(makeMessage(isAssistant ? 'assistant' : 'user', node));
+      const userNodes = Array.from(root.querySelectorAll('.query-text-line, .query-text p, .query-text'));
+      const assistantNodes = Array.from(root.querySelectorAll('message-content .markdown-main-panel, .markdown-main-panel, [inline-copy-host]'));
+      userNodes.forEach(node => add('user', node));
+      assistantNodes.forEach(node => add('assistant', node));
+    }
+
+    // Gemini share pages sometimes serialize the rendered HTML in Angular/custom
+    // elements but lose custom-element selection in malformed pasted markup. This
+    // fallback reparses each raw share-turn-viewer block independently.
+    if (!messages.length && /share-turn-viewer/i.test(htmlText)) {
+      const rawTurns = String(htmlText).split(/<share-turn-viewer\b/i).slice(1).map(chunk => '<share-turn-viewer' + chunk.split(/<\/share-turn-viewer>/i)[0] + '</share-turn-viewer>');
+      rawTurns.forEach((turnHTML) => {
+        const scratch = parseDocument(turnHTML);
+        const userContent = bestNode(scratch.querySelectorAll('.query-text-line, .query-text p, .query-text, [data-test-id="luminous-collapsed-bubble"]'));
+        const assistantContent = bestNode(scratch.querySelectorAll('message-content .markdown-main-panel, .markdown-main-panel, [inline-copy-host], structured-content-container .markdown'));
+        if (userContent) add('user', userContent);
+        if (assistantContent) add('assistant', assistantContent);
       });
     }
 
@@ -448,7 +578,7 @@
       provider: 'gemini',
       title: textOf(doc.querySelector('.headline strong')) || stripCommonTitleNoise(doc.title) || getMeta(doc, 'meta[property="og:title"]'),
       date: textOf(doc.querySelector('.publish-time')),
-      url: sourceUrl || getMeta(doc, 'link[rel="canonical"]', 'href'),
+      url: sourceUrl || getMeta(doc, 'link[rel="canonical"]', 'href') || getMeta(doc, 'a.share-link', 'href'),
       messages
     });
   }
