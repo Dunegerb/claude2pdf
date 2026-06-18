@@ -186,58 +186,122 @@
     const root = doc.querySelector('main') || doc.body;
     const messages = [];
 
-    const turnSelectors = [
-      '[data-testid^="conversation-turn"]',
-      '[data-testid*="conversation-turn"]',
-      '[data-turn]',
-      '[data-message-author-role]'
-    ].join(',');
+    function isClaudeNoise(text) {
+      const value = String(text || '').replace(/\s+/g, ' ').trim();
+      if (!value) return true;
+      return [
+        'This is a copy of a chat',
+        'This is a copy of a Claude conversation',
+        'Content may include',
+        'Claude can make mistakes',
+        'Accept all cookies',
+        'Privacy Policy',
+        'Terms of Service',
+        'Try Claude',
+        'Open in Claude'
+      ].some(noise => value.toLowerCase().includes(noise.toLowerCase()));
+    }
 
-    const turns = Array.from(root.querySelectorAll(turnSelectors));
-    if (turns.length) {
-      const seen = new Set();
-      turns.forEach((turn) => {
-        const roleAttr = turn.getAttribute('data-turn') || turn.getAttribute('data-message-author-role') || '';
-        let role = /user/i.test(roleAttr) ? 'user' : (/assistant|claude/i.test(roleAttr) ? 'assistant' : '');
-        const innerRole = turn.querySelector('[data-message-author-role]');
-        if (!role && innerRole) {
-          const attr = innerRole.getAttribute('data-message-author-role') || '';
-          role = /user/i.test(attr) ? 'user' : (/assistant|claude/i.test(attr) ? 'assistant' : '');
+    function isInsideNoise(node) {
+      return !!(node && node.closest && node.closest([
+        'script', 'style', 'noscript', 'template', 'nav', 'header', 'footer', 'aside', 'form',
+        'button', '[role="button"]', '[aria-hidden="true"]', '.sr-only', '.hidden'
+      ].join(',')));
+    }
+
+    function roleForClaudeNode(node) {
+      if (!node) return '';
+      const className = String(node.className || '');
+      const closestUser = node.closest && node.closest('[class*="font-user-message"], [data-testid="user-message"], [data-message-author-role="user"]');
+      const closestAssistant = node.closest && node.closest('[class*="font-claude-message"], [data-testid="assistant-message"], [data-message-author-role="assistant"]');
+      if (closestUser || /font-user-message|user-message/i.test(className)) return 'user';
+      if (closestAssistant || /font-claude-message|claude-message|assistant-message/i.test(className)) return 'assistant';
+      if (node.matches && node.matches('.prose, [data-test-render="true"], .markdown, [class*="markdown"]')) return 'assistant';
+      return '';
+    }
+
+    function addClaudeCandidate(role, node) {
+      if (!role || !node || isInsideNoise(node)) return;
+      const text = textOf(node);
+      if (isClaudeNoise(text)) return;
+      if (text.length < 1) return;
+
+      // Prefer the smallest content root when Claude wraps the same content in many flex containers.
+      const contentNode = (() => {
+        if (role === 'assistant') {
+          return node.querySelector && (
+            node.querySelector('[data-test-render="true"]') ||
+            node.querySelector('.prose') ||
+            node.querySelector('[class*="markdown"]')
+          ) || node;
         }
-        if (!role) return;
-        const content = role === 'assistant'
-          ? (turn.querySelector('.prose') || turn.querySelector('[data-test-render="true"]') || innerRole || turn)
-          : (turn.querySelector('.font-user-message') || innerRole || turn);
-        if (!content || seen.has(content)) return;
-        seen.add(content);
-        messages.push(makeMessage(role, content));
+        return node.querySelector && (
+          node.querySelector('[class*="font-user-message"]') ||
+          node.querySelector('.whitespace-pre-wrap')
+        ) || node;
+      })();
+
+      const finalText = textOf(contentNode);
+      if (isClaudeNoise(finalText)) return;
+
+      const duplicate = messages.some((message) => {
+        const a = (message.text || '').replace(/\s+/g, ' ').trim();
+        const b = finalText.replace(/\s+/g, ' ').trim();
+        return message.role === role && (a === b || (a.length > 30 && b.includes(a)) || (b.length > 30 && a.includes(b)));
+      });
+      if (duplicate) return;
+
+      messages.push({
+        role,
+        node: contentNode,
+        orderNode: node,
+        message: makeMessage(role, contentNode)
       });
     }
 
+    // 1) Current Claude shared pages: user and assistant text usually carry these font classes.
+    Array.from(root.querySelectorAll('[class*="font-user-message"], [class*="font-claude-message"]')).forEach((node) => {
+      addClaudeCandidate(roleForClaudeNode(node), node);
+    });
+
+    // 2) Older/newer Claude variants: assistant markdown is often plain .prose or data-test-render.
+    Array.from(root.querySelectorAll('.prose, [data-test-render="true"], [class*="markdown"]')).forEach((node) => {
+      if (node.closest('[class*="font-user-message"]')) return;
+      addClaudeCandidate('assistant', node);
+    });
+
+    // 3) Shared pages sometimes expose role attributes after hydration.
+    Array.from(root.querySelectorAll('[data-message-author-role], [data-turn]')).forEach((node) => {
+      const rawRole = node.getAttribute('data-message-author-role') || node.getAttribute('data-turn') || '';
+      const role = /user/i.test(rawRole) ? 'user' : (/assistant|claude/i.test(rawRole) ? 'assistant' : '');
+      addClaudeCandidate(role, node);
+    });
+
+    // 4) Conservative legacy fallback from the original project. Use only when no explicit Claude messages were found.
     if (!messages.length) {
       const working = (root || doc.body).cloneNode(true);
       removeNoise(working);
       working.querySelectorAll('.prose, [data-test-render="true"]').forEach((node) => {
-        messages.push(makeMessage('assistant', node));
+        addClaudeCandidate('assistant', node);
       });
-
-      const userCandidates = Array.from(working.querySelectorAll('.flex.flex-col, .font-user-message, [class*="user"]'));
-      userCandidates.forEach((node) => {
-        const text = textOf(node);
-        if (!text || text.length < 1) return;
-        if (text.includes('This is a copy') || text.includes('Content may include')) return;
-        if (node.querySelector('.prose, [data-test-render="true"]')) return;
-        if (messages.some(m => m.text === text)) return;
-        messages.unshift(makeMessage('user', node));
+      working.querySelectorAll('.font-user-message, [class*="font-user-message"]').forEach((node) => {
+        addClaudeCandidate('user', node);
       });
     }
 
+    const orderedMessages = messages
+      .sort((a, b) => {
+        if (a.orderNode === b.orderNode) return 0;
+        return a.orderNode.compareDocumentPosition(b.orderNode) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+      })
+      .map(entry => entry.message);
+
     return finalizeConversation({
       provider: 'claude',
-      title: stripCommonTitleNoise(doc.title) || getMeta(doc, 'meta[property="og:title"]'),
+      title: stripCommonTitleNoise(getMeta(doc, 'meta[property="og:title"]') || doc.title || textOf(doc.querySelector('h1'))),
       date: '',
       url: sourceUrl || getMeta(doc, 'link[rel="canonical"]', 'href'),
-      messages
+      messages: orderedMessages
     });
   }
 

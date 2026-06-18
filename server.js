@@ -120,12 +120,46 @@ app.post('/api/extract', limiter, async (req, res) => {
         // Acessa a página
         await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-        // Aguarda a div contendo o chat aparecer (passando do Cloudflare)
+        // Aguarda conteúdo REAL do chat. Não usamos `main` aqui porque, no Claude,
+        // ele aparece antes das respostas da IA serem hidratadas.
+        const provider = parsedUrl.hostname.includes('claude.ai') ? 'claude'
+            : parsedUrl.hostname.includes('chatgpt.com') ? 'chatgpt'
+            : parsedUrl.hostname.includes('gemini.google.com') ? 'gemini'
+            : parsedUrl.hostname.includes('grok.com') ? 'grok'
+            : 'unknown';
+
+        const selectorsByProvider = {
+            claude: '[class*="font-user-message"], [class*="font-claude-message"], .prose, [data-test-render="true"]',
+            chatgpt: '[data-message-author-role], section[data-turn], [data-testid^="conversation-turn-"]',
+            gemini: 'share-turn-viewer, .share-turn-viewer, .query-text, .markdown-main-panel',
+            grok: '[data-testid="user-message"], [data-testid="assistant-message"]'
+        };
+
         try {
-            await page.waitForSelector('.prose, main, [data-message-author-role], share-turn-viewer, [data-testid=\"user-message\"], [data-testid=\"assistant-message\"]', { timeout: 18000 });
+            await page.waitForSelector(selectorsByProvider[provider] || 'body', { timeout: 22000 });
         } catch (e) {
-            console.log("[-] Timeout aguardando as classes. Tentando extrair mesmo assim.");
+            console.log(`[-] Timeout aguardando conteúdo de ${provider}. Tentando extrair mesmo assim.`);
         }
+
+        // Dá tempo para frameworks client-side finalizarem renderização e força lazy content.
+        try {
+            await page.evaluate(async () => {
+                await new Promise((resolve) => {
+                    let totalHeight = 0;
+                    const distance = 700;
+                    const timer = setInterval(() => {
+                        window.scrollBy(0, distance);
+                        totalHeight += distance;
+                        if (totalHeight >= document.body.scrollHeight) {
+                            clearInterval(timer);
+                            window.scrollTo(0, 0);
+                            resolve();
+                        }
+                    }, 120);
+                });
+            });
+            await new Promise(resolve => setTimeout(resolve, 900));
+        } catch (e) {}
 
         const html = await page.content();
 
