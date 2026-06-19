@@ -12,6 +12,8 @@ puppeteer.use(StealthPlugin());
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const FEEDBACK_ENDPOINT = process.env.FEEDBACK_ENDPOINT || 'https://script.google.com/macros/s/AKfycbzXcV_pAn8JmnGCm7CWflsGeJKwvdDX9ZSnuQN9WR2oNA4vzThN_cddnyw2cglkSNLv/exec';
+
 
 // Configura EJS como motor de templates
 app.set('view engine', 'ejs');
@@ -61,6 +63,84 @@ const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, 
     max: 20,
     message: { error: "Muitas requisições. Tente novamente mais tarde." }
+});
+
+const feedbackLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 8,
+    message: { error: "Too many feedback submissions. Please try again later." }
+});
+
+function sanitizeText(value, maxLength) {
+    return String(value || '').replace(/[\x00-\x1F\x7F]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, maxLength);
+}
+
+function sanitizeMultiline(value, maxLength) {
+    return String(value || '').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, ' ').trim().slice(0, maxLength);
+}
+
+function isValidEmail(value) {
+    if (!value) return true;
+    return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value) && value.length <= 254;
+}
+
+// Recebe feedback sem armazenar conteúdo de conversas. O servidor valida,
+// limita abuso e encaminha somente os campos mínimos para o Google Apps Script.
+app.post('/api/feedback', feedbackLimiter, async (req, res) => {
+    try {
+        const body = req.body || {};
+
+        // Honeypot invisível para bots: usuários reais nunca preenchem isso.
+        if (body.company) {
+            return res.json({ success: true });
+        }
+
+        const rating = Number(body.rating);
+        const message = sanitizeMultiline(body.message, 1200);
+        const email = sanitizeText(body.email, 254).toLowerCase();
+        const updatesConsent = body.updatesConsent === true || body.updatesConsent === 'true' || body.updatesConsent === 'yes';
+        const provider = sanitizeText(body.provider, 32);
+        const appVersion = sanitizeText(body.appVersion, 32) || '1.0.0';
+
+        if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+            return res.status(400).json({ success: false, error: 'Choose a star rating before sending.' });
+        }
+
+        if (!message) {
+            return res.status(400).json({ success: false, error: 'Write a short comment so the feedback is useful.' });
+        }
+
+        if (!isValidEmail(email)) {
+            return res.status(400).json({ success: false, error: 'Enter a valid email or leave it blank.' });
+        }
+
+        const params = new URLSearchParams({
+            createdAt: new Date().toISOString(),
+            rating: String(rating),
+            message,
+            email,
+            updatesConsent: updatesConsent && email ? 'yes' : 'no',
+            provider,
+            appVersion,
+            source: 'Claude2PDF Document Preview'
+        });
+
+        const response = await fetch(FEEDBACK_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+            body: params.toString(),
+            redirect: 'follow'
+        });
+
+        if (!response.ok) {
+            throw new Error(`Feedback endpoint returned ${response.status}`);
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[-] Feedback error:', error.message);
+        res.status(502).json({ success: false, error: 'Feedback could not be sent right now.' });
+    }
 });
 
 

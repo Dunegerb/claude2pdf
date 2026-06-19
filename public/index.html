@@ -170,6 +170,18 @@
     }
 
 
+    /* iOS Safari: prevent automatic zoom when focusing form fields without changing layout.
+       Mobile Safari zooms inputs below 16px on focus, so keep interactive fields at 16px only on touch WebKit. */
+    @supports (-webkit-touch-callout: none) {
+      @media (hover: none) and (pointer: coarse) {
+        #extraction-input,
+        #faq-search {
+          font-size: 16px !important;
+        }
+      }
+    }
+
+
     /* Supported networks: cinza por padrão, cores reais no hover */
     .ai-logo-link {
       position: relative;
@@ -499,7 +511,7 @@
 
       <!-- Botão de Apoio Animado -->
       <a 
-        href="https://www.buymeacoffee.com" 
+        href="https://buymeacoffee.com/claude2pdf" 
         target="_blank" 
         rel="noopener noreferrer" 
         class="animated-button coffee-support-button"
