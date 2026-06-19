@@ -138,6 +138,8 @@
 
     #origin-button {
       transition: color 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform var(--ease-out-fast);
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
     }
     #origin-button:active {
       transform: scale(0.985);
@@ -836,6 +838,9 @@
        ========================================== */
     const button = document.getElementById('origin-button');
     const fill = document.getElementById('button-fill');
+    const canUseMouseHover = window.matchMedia
+      ? window.matchMedia('(hover: hover) and (pointer: fine)').matches
+      : true;
 
     let hovered = false;
     let pressed = false;
@@ -876,7 +881,6 @@
 
     function applyButtonState() {
       const showFill = hovered || pressed;
-      const textWrapper = button.querySelector('.z-10');
 
       if (showFill && coverSize > 0) {
         fill.style.transform = 'translate(-50%, -50%) scale(1)';
@@ -889,23 +893,34 @@
       }
     }
 
+    function resetTouchHoverState() {
+      hovered = false;
+      pressed = false;
+      applyButtonState();
+    }
+
     button.addEventListener('pointerenter', (event) => {
+      if (!canUseMouseHover || event.pointerType !== 'mouse') return;
       updateOriginFromPointer(event);
       hovered = true;
       applyButtonState();
     });
 
     button.addEventListener('pointerdown', (event) => {
-      if (event.button !== 0) return;
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
       updateOriginFromPointer(event);
       pressed = true;
+      if (event.pointerType !== 'mouse') hovered = false;
       applyButtonState();
     });
 
-    button.addEventListener('pointerup', () => { 
-      pressed = false; 
-      applyButtonState(); 
+    button.addEventListener('pointerup', (event) => {
+      pressed = false;
+      if (!canUseMouseHover || event.pointerType !== 'mouse') hovered = false;
+      applyButtonState();
     });
+
+    button.addEventListener('pointercancel', resetTouchHoverState);
 
     button.addEventListener('pointerleave', () => { 
       hovered = false; 
@@ -914,16 +929,13 @@
     });
 
     button.addEventListener('focus', () => { 
+      if (!canUseMouseHover) return;
       updateOriginFromCenter(); 
       hovered = true; 
       applyButtonState(); 
     });
 
-    button.addEventListener('blur', () => { 
-      hovered = false; 
-      pressed = false; 
-      applyButtonState(); 
-    });
+    button.addEventListener('blur', resetTouchHoverState);
 
 
 
@@ -1326,7 +1338,39 @@
         window.location.href = '/loading.html';
       }
 
-      actionButton.addEventListener('click', submitConversationLink);
+      let lastTouchSubmitAt = 0;
+      let isSubmittingConversation = false;
+
+      function submitConversationLinkOnce() {
+        if (isSubmittingConversation) return;
+        isSubmittingConversation = true;
+        try {
+          submitConversationLink();
+        } finally {
+          setTimeout(() => { isSubmittingConversation = false; }, 500);
+        }
+      }
+
+      function submitFromTouch(event) {
+        if (event.pointerType === 'mouse') return;
+        event.preventDefault();
+        lastTouchSubmitAt = Date.now();
+        submitConversationLinkOnce();
+      }
+
+      actionButton.addEventListener('pointerup', submitFromTouch, { passive: false });
+      if (!window.PointerEvent) {
+        actionButton.addEventListener('touchend', (event) => {
+          event.preventDefault();
+          lastTouchSubmitAt = Date.now();
+          submitConversationLinkOnce();
+        }, { passive: false });
+      }
+
+      actionButton.addEventListener('click', (event) => {
+        if (Date.now() - lastTouchSubmitAt < 700) return;
+        submitConversationLinkOnce();
+      });
       inputEl.addEventListener('keydown', (event) => {
         if (event.key === 'Enter') {
           event.preventDefault();
