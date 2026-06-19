@@ -2,12 +2,16 @@
  * Claude2PDF feedback receiver for Google Apps Script.
  *
  * Recommended setup:
+ * Setup option A, recommended:
  * 1. Create a Google Sheet for feedback.
  * 2. Open Extensions > Apps Script from that Sheet.
  * 3. Paste this file into Code.gs.
  * 4. Deploy > New deployment > Web app.
  * 5. Execute as: Me. Who has access: Anyone.
- * 6. Copy the /exec URL and use it as FEEDBACK_ENDPOINT on your server.
+ *
+ * Setup option B:
+ * Paste this into a standalone Apps Script. The first request will create
+ * a spreadsheet named "Claude2PDF Feedback" in your Google Drive.
  */
 function doPost(e) {
   try {
@@ -39,7 +43,14 @@ function doPost(e) {
 }
 
 function doGet() {
-  return json_({ success: true, message: 'Claude2PDF feedback endpoint is online.' });
+  var info = { success: true, message: 'Claude2PDF feedback endpoint is online.' };
+  try {
+    var sheet = getFeedbackSheet_();
+    info.spreadsheetUrl = sheet.getParent().getUrl();
+  } catch (err) {
+    info.sheetWarning = String(err && err.message ? err.message : err);
+  }
+  return json_(info);
 }
 
 function parsePayload_(e) {
@@ -57,10 +68,17 @@ function parsePayload_(e) {
 
 function getFeedbackSheet_() {
   var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+
   if (!spreadsheet) {
-    var spreadsheetId = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
-    if (!spreadsheetId) throw new Error('No active spreadsheet. Bind this script to a Sheet or set SPREADSHEET_ID.');
-    spreadsheet = SpreadsheetApp.openById(spreadsheetId);
+    var properties = PropertiesService.getScriptProperties();
+    var spreadsheetId = properties.getProperty('SPREADSHEET_ID');
+
+    if (spreadsheetId) {
+      spreadsheet = SpreadsheetApp.openById(spreadsheetId);
+    } else {
+      spreadsheet = SpreadsheetApp.create('Claude2PDF Feedback');
+      properties.setProperty('SPREADSHEET_ID', spreadsheet.getId());
+    }
   }
 
   var sheet = spreadsheet.getSheetByName('Feedback');

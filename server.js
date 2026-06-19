@@ -6,6 +6,7 @@ const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
 
 // Ativa o modo invisível do Puppeteer
 puppeteer.use(StealthPlugin());
@@ -13,6 +14,7 @@ puppeteer.use(StealthPlugin());
 const app = express();
 const PORT = process.env.PORT || 3000;
 const FEEDBACK_ENDPOINT = process.env.FEEDBACK_ENDPOINT || 'https://script.google.com/macros/s/AKfycbzXcV_pAn8JmnGCm7CWflsGeJKwvdDX9ZSnuQN9WR2oNA4vzThN_cddnyw2cglkSNLv/exec';
+const FEEDBACK_FALLBACK_FILE = path.join(__dirname, 'data', 'feedback-fallback.jsonl');
 
 
 // Configura EJS como motor de templates
@@ -84,6 +86,95 @@ function isValidEmail(value) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value) && value.length <= 254;
 }
 
+function postUrlEncoded(targetUrl, params, redirectCount = 0) {
+    return new Promise((resolve, reject) => {
+        let parsedUrl;
+        try {
+            parsedUrl = new URL(targetUrl);
+        } catch (_) {
+            return reject(new Error('Invalid feedback endpoint URL.'));
+        }
+
+        const body = params.toString();
+        const request = https.request({
+            protocol: parsedUrl.protocol,
+            hostname: parsedUrl.hostname,
+            port: parsedUrl.port || 443,
+            path: `${parsedUrl.pathname}${parsedUrl.search}`,
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                'Content-Length': Buffer.byteLength(body),
+                'User-Agent': 'Claude2PDF-Feedback/1.0'
+            },
+            timeout: 12000
+        }, (response) => {
+            const chunks = [];
+            response.on('data', (chunk) => chunks.push(chunk));
+            response.on('end', () => {
+                const responseBody = Buffer.concat(chunks).toString('utf8');
+                const statusCode = response.statusCode || 0;
+                const location = response.headers.location;
+
+                if ([301, 302, 303, 307, 308].includes(statusCode) && location && redirectCount < 5) {
+                    const nextUrl = new URL(location, targetUrl).toString();
+                    postUrlEncoded(nextUrl, params, redirectCount + 1).then(resolve).catch(reject);
+                    return;
+                }
+
+                if (statusCode < 200 || statusCode >= 300) {
+                    reject(new Error(`Feedback endpoint returned HTTP ${statusCode}`));
+                    return;
+                }
+
+                let json = null;
+                try {
+                    json = JSON.parse(responseBody);
+                } catch (_) {
+                    // Google Apps Script can return non-JSON HTML in some deployment states.
+                }
+
+                if (json && json.success === false) {
+                    reject(new Error(json.error || 'Feedback endpoint rejected the submission.'));
+                    return;
+                }
+
+                resolve({ ok: true, statusCode, body: responseBody, json });
+            });
+        });
+
+        request.on('timeout', () => {
+            request.destroy(new Error('Feedback endpoint timed out.'));
+        });
+        request.on('error', reject);
+        request.write(body);
+        request.end();
+    });
+}
+
+function saveFeedbackFallback(payload, error) {
+    try {
+        fs.mkdirSync(path.dirname(FEEDBACK_FALLBACK_FILE), { recursive: true });
+        const safePayload = {
+            queuedAt: new Date().toISOString(),
+            deliveryStatus: 'queued_after_upstream_error',
+            deliveryError: String(error && error.message ? error.message : error).slice(0, 300),
+            rating: payload.rating,
+            message: payload.message,
+            email: payload.email,
+            updatesConsent: payload.updatesConsent,
+            provider: payload.provider,
+            appVersion: payload.appVersion,
+            source: payload.source
+        };
+        fs.appendFileSync(FEEDBACK_FALLBACK_FILE, `${JSON.stringify(safePayload)}\n`, 'utf8');
+        return true;
+    } catch (fallbackError) {
+        console.error('[-] Feedback fallback write error:', fallbackError.message);
+        return false;
+    }
+}
+
 // Recebe feedback sem armazenar conteúdo de conversas. O servidor valida,
 // limita abuso e encaminha somente os campos mínimos para o Google Apps Script.
 app.post('/api/feedback', feedbackLimiter, async (req, res) => {
@@ -125,18 +216,31 @@ app.post('/api/feedback', feedbackLimiter, async (req, res) => {
             source: 'Claude2PDF Document Preview'
         });
 
-        const response = await fetch(FEEDBACK_ENDPOINT, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-            body: params.toString(),
-            redirect: 'follow'
-        });
+        const feedbackPayload = {
+            rating: String(rating),
+            message,
+            email,
+            updatesConsent: updatesConsent && email ? 'yes' : 'no',
+            provider,
+            appVersion,
+            source: 'Claude2PDF Document Preview'
+        };
 
-        if (!response.ok) {
-            throw new Error(`Feedback endpoint returned ${response.status}`);
+        try {
+            await postUrlEncoded(FEEDBACK_ENDPOINT, params);
+            return res.json({ success: true });
+        } catch (upstreamError) {
+            console.error('[-] Feedback upstream error:', upstreamError.message);
+            const queued = saveFeedbackFallback(feedbackPayload, upstreamError);
+            if (queued) {
+                return res.status(202).json({
+                    success: true,
+                    queued: true,
+                    message: 'Feedback received and queued. Configure the Google Apps Script deployment to deliver it to Sheets.'
+                });
+            }
+            throw upstreamError;
         }
-
-        res.json({ success: true });
     } catch (error) {
         console.error('[-] Feedback error:', error.message);
         res.status(502).json({ success: false, error: 'Feedback could not be sent right now.' });
