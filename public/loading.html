@@ -533,14 +533,7 @@ clean(payload) {
       }
 
       async function convert() {
-        const params = new URLSearchParams(window.location.search);
-        const queryUrl = params.get('url');
-        let sourceUrl = null;
-        try { sourceUrl = sessionStorage.getItem(keys.sourceUrl); } catch (_) {}
-        if (!sourceUrl && queryUrl) {
-          sourceUrl = queryUrl;
-          try { sessionStorage.setItem(keys.sourceUrl, sourceUrl); } catch (_) {}
-        }
+        const sourceUrl = sessionStorage.getItem(keys.sourceUrl);
         if (!sourceUrl) {
           window.location.href = '/';
           return;

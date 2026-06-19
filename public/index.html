@@ -539,7 +539,7 @@
       </div>
 
       <!-- Command Center: Caixa de Comando Integrativa -->
-      <form id="extract-form" class="w-full bg-white border border-neutral-200 p-1.5 shadow-[0_12px_32px_-12px_rgba(0,0,0,0.06)] flex flex-col sm:flex-row items-center gap-2 mt-4 transition-all duration-300 focus-within:border-neutral-400 focus-within:shadow-[0_12px_32px_-10px_rgba(0,0,0,0.12)]" style="border-radius: var(--radius-lg);" novalidate>
+      <div class="w-full bg-white border border-neutral-200 p-1.5 shadow-[0_12px_32px_-12px_rgba(0,0,0,0.06)] flex flex-col sm:flex-row items-center gap-2 mt-4 transition-all duration-300 focus-within:border-neutral-400 focus-within:shadow-[0_12px_32px_-10px_rgba(0,0,0,0.12)]" style="border-radius: var(--radius-lg);">
         
         <!-- Input com Ícone de Link e Placeholder Dinâmico -->
         <div class="relative flex-1 w-full flex items-center pl-3">
@@ -564,7 +564,7 @@
         <!-- Botão de Ação Nestado (Origin Button) -->
         <button
           id="origin-button"
-          type="submit"
+          type="button"
           class="relative shrink-0 w-full sm:w-auto inline-flex h-10 cursor-pointer touch-manipulation select-none items-center justify-center overflow-hidden px-5 font-semibold text-xs tracking-wide bg-white text-neutral-900 border border-neutral-200"
           style="border-radius: calc(var(--radius-lg) - 8px);"
         >
@@ -580,7 +580,7 @@
             </svg>
           </span>
         </button>
-      </form>
+      </div>
 
       <!-- Logos de Redes Suportadas Discretas (Carga cognitiva simplificada) -->
       <div class="flex items-center gap-2.5 text-xs text-neutral-300 mt-2 select-none">
@@ -1300,135 +1300,82 @@
 
   <script>
     (() => {
-      const formEl = document.getElementById('extract-form');
       const inputEl = document.getElementById('extraction-input');
       const actionButton = document.getElementById('origin-button');
-      if (!formEl || !inputEl || !actionButton) return;
+      if (!inputEl || !actionButton) return;
 
-      const SOURCE_KEY = 'claude2pdf:sourceUrl';
-      const CONVERSATION_KEY = 'claude2pdf:conversation';
-      const ERROR_KEY = 'claude2pdf:error';
-
-      function safeSessionSet(key, value) {
-        try { sessionStorage.setItem(key, value); return true; }
-        catch (_) { return false; }
-      }
-
-      function safeSessionRemove(key) {
-        try { sessionStorage.removeItem(key); } catch (_) {}
-      }
-
-      function safeSessionGet(key) {
-        try { return sessionStorage.getItem(key); }
-        catch (_) { return null; }
-      }
-
-      const pendingError = safeSessionGet(ERROR_KEY);
+      const pendingError = sessionStorage.getItem('claude2pdf:error');
       if (pendingError) {
-        safeSessionRemove(ERROR_KEY);
+        sessionStorage.removeItem('claude2pdf:error');
         setTimeout(() => window.alert(pendingError), 250);
       }
 
-      function normalizeShareUrl(rawValue) {
-        let value = String(rawValue || '').trim();
-        value = value.replace(/[\u200B-\u200D\uFEFF]/g, '');
-        if (!value) return { error: 'Paste a public share URL.' };
-
-        // Mobile keyboards/share sheets often paste without a scheme.
-        if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
-          value = `https://${value.replace(/^\/+/, '')}`;
-        }
-
-        let parsed;
-        try { parsed = new URL(value); }
-        catch (_) { return { error: 'Paste a valid public share URL.' }; }
-
-        const host = parsed.hostname.replace(/^www\./i, '').toLowerCase();
-        const allowedHosts = ['claude.ai', 'chatgpt.com', 'gemini.google.com', 'grok.com'];
-
-        if (parsed.protocol !== 'https:' || !allowedHosts.includes(host) || !parsed.pathname.includes('/share/')) {
-          return { error: 'Use a public /share/ link from Claude, ChatGPT, Gemini or Grok.' };
-        }
-
-        if (host !== parsed.hostname) parsed.hostname = host;
-        return { url: parsed.toString() };
-      }
-
-      function resetButtonVisualState() {
-        const fill = document.getElementById('button-fill');
-        if (fill) fill.style.transform = 'translate(-50%, -50%) scale(0)';
-        actionButton.classList.remove('text-white');
-        actionButton.classList.add('text-neutral-900');
-      }
-
-      function showInputError(message) {
-        resetButtonVisualState();
-        inputEl.setCustomValidity(message);
-        if (typeof inputEl.reportValidity === 'function') inputEl.reportValidity();
-        else window.alert(message);
-        window.setTimeout(() => inputEl.setCustomValidity(''), 0);
-        try { inputEl.focus({ preventScroll: true }); }
-        catch (_) { inputEl.focus(); }
-      }
-
-      let submitting = false;
-      let lastDirectStartAt = 0;
-
-      function startConversion(event, options = {}) {
-        if (event && typeof event.preventDefault === 'function') event.preventDefault();
-        if (event && typeof event.stopPropagation === 'function' && options.captureGuard) event.stopPropagation();
-        if (submitting) return;
-
-        const result = normalizeShareUrl(inputEl.value);
-        if (result.error) {
-          showInputError(result.error);
+      function submitConversationLink() {
+        const value = inputEl.value.trim();
+        if (!value) {
+          inputEl.focus();
           return;
         }
-
-        submitting = true;
-        actionButton.setAttribute('aria-busy', 'true');
-        actionButton.disabled = true;
-
-        safeSessionSet(SOURCE_KEY, result.url);
-        safeSessionRemove(CONVERSATION_KEY);
-        safeSessionRemove(ERROR_KEY);
-
-        const loadingUrl = `/loading.html?url=${encodeURIComponent(result.url)}`;
-        window.location.assign(loadingUrl);
+        let parsed;
+        try {
+          parsed = new URL(value);
+        } catch (error) {
+          inputEl.setCustomValidity('Paste a valid public share URL.');
+          inputEl.reportValidity();
+          inputEl.setCustomValidity('');
+          return;
+        }
+        const allowedHosts = ['claude.ai', 'chatgpt.com', 'gemini.google.com', 'grok.com'];
+        if (parsed.protocol !== 'https:' || !allowedHosts.includes(parsed.hostname) || !parsed.pathname.includes('/share/')) {
+          inputEl.setCustomValidity('Use a public /share/ link from Claude, ChatGPT, Gemini or Grok.');
+          inputEl.reportValidity();
+          inputEl.setCustomValidity('');
+          return;
+        }
+        sessionStorage.setItem('claude2pdf:sourceUrl', value);
+        sessionStorage.removeItem('claude2pdf:conversation');
+        sessionStorage.removeItem('claude2pdf:error');
+        window.location.href = '/loading.html';
       }
 
-      // Native submit path for desktop, keyboard, and browsers that dispatch click normally.
-      formEl.addEventListener('submit', (event) => startConversion(event));
+      let lastTouchSubmitAt = 0;
+      let isSubmittingConversation = false;
 
-      // Mobile-safe path: some touch browsers can keep the button in a hover/pressed
-      // visual state and suppress the later click after the fill animation mutates the
-      // button. Starting on touch/pointer down guarantees the action is not lost.
-      actionButton.addEventListener('pointerdown', (event) => {
+      function submitConversationLinkOnce() {
+        if (isSubmittingConversation) return;
+        isSubmittingConversation = true;
+        try {
+          submitConversationLink();
+        } finally {
+          setTimeout(() => { isSubmittingConversation = false; }, 500);
+        }
+      }
+
+      function submitFromTouch(event) {
         if (event.pointerType === 'mouse') return;
         event.preventDefault();
-        lastDirectStartAt = Date.now();
-        window.setTimeout(() => startConversion(null), 55);
-      }, { capture: true, passive: false });
+        lastTouchSubmitAt = Date.now();
+        submitConversationLinkOnce();
+      }
 
-      actionButton.addEventListener('touchstart', (event) => {
-        // Kept even when PointerEvent exists, because older/in-app mobile browsers
-        // can expose PointerEvent but fail to deliver pointerup/click reliably.
-        if (Date.now() - lastDirectStartAt < 650) return;
-        event.preventDefault();
-        lastDirectStartAt = Date.now();
-        window.setTimeout(() => startConversion(null), 55);
-      }, { capture: true, passive: false });
+      actionButton.addEventListener('pointerup', submitFromTouch, { passive: false });
+      if (!window.PointerEvent) {
+        actionButton.addEventListener('touchend', (event) => {
+          event.preventDefault();
+          lastTouchSubmitAt = Date.now();
+          submitConversationLinkOnce();
+        }, { passive: false });
+      }
 
       actionButton.addEventListener('click', (event) => {
-        if (Date.now() - lastDirectStartAt < 650) {
-          event.preventDefault();
-          return;
-        }
-        startConversion(event);
+        if (Date.now() - lastTouchSubmitAt < 700) return;
+        submitConversationLinkOnce();
       });
-
       inputEl.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter') startConversion(event);
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          submitConversationLink();
+        }
       });
     })();
   </script>
