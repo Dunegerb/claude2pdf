@@ -448,6 +448,32 @@
       box-shadow: 0 18px 42px -30px rgba(18, 19, 23, 0.35);
     }
 
+
+    .extraction-inline-error {
+      width: 100%;
+      margin: -18px 0 0;
+      padding: 0 12px;
+      color: #8a3f46;
+      font-family: var(--font-sans);
+      font-size: 12px;
+      line-height: 16px;
+      font-weight: 500;
+      letter-spacing: -0.012em;
+      text-align: left;
+      opacity: 0;
+      transform: translateY(-2px);
+      transition: opacity 0.18s ease, transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .extraction-inline-error.is-visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .extraction-inline-error[hidden] {
+      display: none;
+    }
+
   </style>
 </head>
 <body class="min-h-screen flex flex-col items-center px-6">
@@ -549,6 +575,7 @@
           <input
             id="extraction-input"
             type="url"
+            aria-describedby="extraction-error"
             class="h-10 w-full appearance-none bg-transparent text-sm text-[#121317] outline-none focus:outline-none"
           />
           <!-- Placeholder Animado com Técnica Morph -->
@@ -581,6 +608,8 @@
           </span>
         </button>
       </div>
+
+      <p id="extraction-error" class="extraction-inline-error" role="alert" aria-live="polite" hidden></p>
 
       <!-- Logos de Redes Suportadas Discretas (Carga cognitiva simplificada) -->
       <div class="flex items-center gap-2.5 text-xs text-neutral-300 mt-2 select-none">
@@ -1302,36 +1331,68 @@
     (() => {
       const inputEl = document.getElementById('extraction-input');
       const actionButton = document.getElementById('origin-button');
+      const inlineError = document.getElementById('extraction-error');
       if (!inputEl || !actionButton) return;
+
+      function showInlineError(message) {
+        if (!inlineError) return;
+        inlineError.textContent = message;
+        inlineError.hidden = false;
+        requestAnimationFrame(() => inlineError.classList.add('is-visible'));
+      }
+
+      function clearInlineError() {
+        if (!inlineError) return;
+        inlineError.classList.remove('is-visible');
+        window.setTimeout(() => {
+          if (!inlineError.classList.contains('is-visible')) {
+            inlineError.hidden = true;
+            inlineError.textContent = '';
+          }
+        }, 180);
+      }
 
       const pendingError = sessionStorage.getItem('claude2pdf:error');
       if (pendingError) {
         sessionStorage.removeItem('claude2pdf:error');
-        setTimeout(() => window.alert(pendingError), 250);
+        setTimeout(() => showInlineError(pendingError), 250);
       }
 
-      function submitConversationLink() {
-        const value = inputEl.value.trim();
-        if (!value) {
-          inputEl.focus();
-          return;
-        }
+      function getLinkValidationError(value) {
+        if (!value) return 'Paste a public share link first.';
+
         let parsed;
         try {
           parsed = new URL(value);
         } catch (error) {
-          inputEl.setCustomValidity('Paste a valid public share URL.');
-          inputEl.reportValidity();
-          inputEl.setCustomValidity('');
-          return;
+          return 'Paste a valid public share URL.';
         }
+
+        const hostname = parsed.hostname.toLowerCase();
+        const pathname = parsed.pathname.toLowerCase();
+
+        if (hostname === 'g.co' && pathname.includes('/gemini/share/')) {
+          return 'Use the full Gemini share link: https://gemini.google.com/share/...';
+        }
+
         const allowedHosts = ['claude.ai', 'chatgpt.com', 'gemini.google.com', 'grok.com'];
-        if (parsed.protocol !== 'https:' || !allowedHosts.includes(parsed.hostname) || !parsed.pathname.includes('/share/')) {
-          inputEl.setCustomValidity('Use a public /share/ link from Claude, ChatGPT, Gemini or Grok.');
-          inputEl.reportValidity();
-          inputEl.setCustomValidity('');
+        if (parsed.protocol !== 'https:' || !allowedHosts.includes(hostname) || !pathname.includes('/share/')) {
+          return 'Use a public /share/ link from Claude, ChatGPT, Gemini or Grok.';
+        }
+
+        return '';
+      }
+
+      function submitConversationLink() {
+        const value = inputEl.value.trim();
+        const validationError = getLinkValidationError(value);
+        if (validationError) {
+          showInlineError(validationError);
+          inputEl.focus();
           return;
         }
+
+        clearInlineError();
         sessionStorage.setItem('claude2pdf:sourceUrl', value);
         sessionStorage.removeItem('claude2pdf:conversation');
         sessionStorage.removeItem('claude2pdf:error');
@@ -1371,6 +1432,8 @@
         if (Date.now() - lastTouchSubmitAt < 700) return;
         submitConversationLinkOnce();
       });
+      inputEl.addEventListener('input', clearInlineError);
+
       inputEl.addEventListener('keydown', (event) => {
         if (event.key === 'Enter') {
           event.preventDefault();

@@ -183,11 +183,15 @@ app.post('/api/extract', limiter, async (req, res) => {
         return res.status(400).json({ error: "URL inválida. Use um link público de Claude, ChatGPT, Gemini ou Grok." });
     }
 
+    if (parsedUrl.hostname === 'g.co' && parsedUrl.pathname.toLowerCase().includes('/gemini/share/')) {
+        return res.status(400).json({ error: "Use the full Gemini share link: https://gemini.google.com/share/..." });
+    }
+
     const isSupportedHost = supportedHosts.includes(parsedUrl.hostname);
     const isSupportedPath = parsedUrl.pathname.includes('/share/');
 
     if (!url || typeof url !== 'string' || parsedUrl.protocol !== 'https:' || !isSupportedHost || !isSupportedPath) {
-        return res.status(400).json({ error: "URL inválida. Use links públicos /share/ de Claude, ChatGPT, Gemini ou Grok." });
+        return res.status(400).json({ error: "Use a public /share/ link from Claude, ChatGPT, Gemini or Grok." });
     }
 
     let browser;
