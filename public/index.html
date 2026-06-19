@@ -1310,71 +1310,116 @@
         setTimeout(() => window.alert(pendingError), 250);
       }
 
-      function submitConversationLink() {
-        const value = inputEl.value.trim();
-        if (!value) {
-          inputEl.focus();
-          return;
+      function showInputError(message) {
+        inputEl.setCustomValidity(message);
+        inputEl.reportValidity();
+        inputEl.setCustomValidity('');
+      }
+
+      function normalizeShareUrl(rawValue) {
+        let value = rawValue.trim();
+        if (!value) return '';
+
+        // Mobile share sheets sometimes paste links without the scheme.
+        if (!/^[a-zA-Z][a-zA-Z\d+.-]*:\/\//.test(value)) {
+          value = `https://${value.replace(/^\/+/, '')}`;
         }
+
         let parsed;
         try {
           parsed = new URL(value);
         } catch (error) {
-          inputEl.setCustomValidity('Paste a valid public share URL.');
-          inputEl.reportValidity();
-          inputEl.setCustomValidity('');
-          return;
+          throw new Error('Paste a valid public share URL.');
         }
-        const allowedHosts = ['claude.ai', 'chatgpt.com', 'gemini.google.com', 'grok.com'];
-        if (parsed.protocol !== 'https:' || !allowedHosts.includes(parsed.hostname) || !parsed.pathname.includes('/share/')) {
-          inputEl.setCustomValidity('Use a public /share/ link from Claude, ChatGPT, Gemini or Grok.');
-          inputEl.reportValidity();
-          inputEl.setCustomValidity('');
-          return;
+
+        const normalizedHost = parsed.hostname
+          .toLowerCase()
+          .replace(/^www\./, '')
+          .replace(/^m\./, '');
+
+        const allowedHosts = new Set(['claude.ai', 'chatgpt.com', 'gemini.google.com', 'grok.com']);
+        if ((parsed.protocol !== 'https:' && parsed.protocol !== 'http:') || !allowedHosts.has(normalizedHost)) {
+          throw new Error('Use a public /share/ link from Claude, ChatGPT, Gemini or Grok.');
         }
-        sessionStorage.setItem('claude2pdf:sourceUrl', value);
-        sessionStorage.removeItem('claude2pdf:conversation');
-        sessionStorage.removeItem('claude2pdf:error');
-        window.location.href = '/loading.html';
+
+        if (!parsed.pathname.includes('/share/')) {
+          throw new Error('Use a public /share/ link from Claude, ChatGPT, Gemini or Grok.');
+        }
+
+        parsed.protocol = 'https:';
+        if (parsed.hostname.toLowerCase() !== normalizedHost) {
+          parsed.hostname = normalizedHost;
+        }
+        return parsed.toString();
       }
 
-      let lastTouchSubmitAt = 0;
+      function submitConversationLink() {
+        let normalizedUrl;
+        try {
+          normalizedUrl = normalizeShareUrl(inputEl.value);
+        } catch (error) {
+          showInputError(error.message || 'Paste a valid public share URL.');
+          return false;
+        }
+
+        if (!normalizedUrl) {
+          inputEl.focus();
+          return false;
+        }
+
+        inputEl.value = normalizedUrl;
+        sessionStorage.setItem('claude2pdf:sourceUrl', normalizedUrl);
+        sessionStorage.removeItem('claude2pdf:conversation');
+        sessionStorage.removeItem('claude2pdf:error');
+        window.location.assign('/loading.html');
+        return true;
+      }
+
       let isSubmittingConversation = false;
+      let mobileSubmitTimer = 0;
 
       function submitConversationLinkOnce() {
         if (isSubmittingConversation) return;
         isSubmittingConversation = true;
-        try {
-          submitConversationLink();
-        } finally {
-          setTimeout(() => { isSubmittingConversation = false; }, 500);
-        }
+        const didSubmit = submitConversationLink();
+
+        // If the page does not navigate because validation failed, unlock quickly.
+        // If it does navigate, this timeout never matters.
+        window.setTimeout(() => {
+          if (!didSubmit) isSubmittingConversation = false;
+        }, didSubmit ? 1600 : 420);
       }
 
-      function submitFromTouch(event) {
+      function queueMobileSubmit() {
+        window.clearTimeout(mobileSubmitTimer);
+        // Let the button press animation begin, then run the real action.
+        mobileSubmitTimer = window.setTimeout(submitConversationLinkOnce, 70);
+      }
+
+      actionButton.addEventListener('pointerdown', (event) => {
         if (event.pointerType === 'mouse') return;
-        event.preventDefault();
-        lastTouchSubmitAt = Date.now();
-        submitConversationLinkOnce();
-      }
+        queueMobileSubmit();
+      }, { passive: true });
 
-      actionButton.addEventListener('pointerup', submitFromTouch, { passive: false });
+      actionButton.addEventListener('pointercancel', () => {
+        window.clearTimeout(mobileSubmitTimer);
+      }, { passive: true });
+
+      // Older mobile browsers without PointerEvent support.
       if (!window.PointerEvent) {
-        actionButton.addEventListener('touchend', (event) => {
-          event.preventDefault();
-          lastTouchSubmitAt = Date.now();
-          submitConversationLinkOnce();
-        }, { passive: false });
+        actionButton.addEventListener('touchstart', queueMobileSubmit, { passive: true });
+        actionButton.addEventListener('touchcancel', () => {
+          window.clearTimeout(mobileSubmitTimer);
+        }, { passive: true });
       }
 
-      actionButton.addEventListener('click', (event) => {
-        if (Date.now() - lastTouchSubmitAt < 700) return;
-        submitConversationLinkOnce();
-      });
+      // Desktop mouse, keyboard activation, and fallback for mobile browsers.
+      actionButton.addEventListener('click', submitConversationLinkOnce);
+
       inputEl.addEventListener('keydown', (event) => {
         if (event.key === 'Enter') {
           event.preventDefault();
-          submitConversationLink();
+          submitConversationLinkOnce();
         }
       });
     })();
