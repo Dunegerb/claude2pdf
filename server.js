@@ -86,7 +86,7 @@ function isValidEmail(value) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value) && value.length <= 254;
 }
 
-function postUrlEncoded(targetUrl, params, redirectCount = 0) {
+function postJson(targetUrl, payload, redirectCount = 0) {
     return new Promise((resolve, reject) => {
         let parsedUrl;
         try {
@@ -95,7 +95,7 @@ function postUrlEncoded(targetUrl, params, redirectCount = 0) {
             return reject(new Error('Invalid feedback endpoint URL.'));
         }
 
-        const body = params.toString();
+        const body = JSON.stringify(payload);
         const request = https.request({
             protocol: parsedUrl.protocol,
             hostname: parsedUrl.hostname,
@@ -103,7 +103,8 @@ function postUrlEncoded(targetUrl, params, redirectCount = 0) {
             path: `${parsedUrl.pathname}${parsedUrl.search}`,
             method: 'POST',
             headers: {
-                'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                'Accept': 'application/json,text/plain,*/*',
+                'Content-Type': 'application/json; charset=UTF-8',
                 'Content-Length': Buffer.byteLength(body),
                 'User-Agent': 'Claude2PDF-Feedback/1.0'
             },
@@ -116,9 +117,11 @@ function postUrlEncoded(targetUrl, params, redirectCount = 0) {
                 const statusCode = response.statusCode || 0;
                 const location = response.headers.location;
 
+                // Google Apps Script commonly responds with a redirect before the
+                // actual web-app response. Preserve POST + JSON when following it.
                 if ([301, 302, 303, 307, 308].includes(statusCode) && location && redirectCount < 5) {
                     const nextUrl = new URL(location, targetUrl).toString();
-                    postUrlEncoded(nextUrl, params, redirectCount + 1).then(resolve).catch(reject);
+                    postJson(nextUrl, payload, redirectCount + 1).then(resolve).catch(reject);
                     return;
                 }
 
@@ -131,7 +134,8 @@ function postUrlEncoded(targetUrl, params, redirectCount = 0) {
                 try {
                     json = JSON.parse(responseBody);
                 } catch (_) {
-                    // Google Apps Script can return non-JSON HTML in some deployment states.
+                    // Some Apps Script deployment states can return a short HTML page.
+                    // Treat a 2xx response as accepted unless JSON explicitly rejects it.
                 }
 
                 if (json && json.success === false) {
@@ -163,9 +167,12 @@ function saveFeedbackFallback(payload, error) {
             message: payload.message,
             email: payload.email,
             updatesConsent: payload.updatesConsent,
+            wantsUpdates: payload.wantsUpdates,
             provider: payload.provider,
             appVersion: payload.appVersion,
-            source: payload.source
+            source: payload.source,
+            page: payload.page,
+            userAgent: payload.userAgent
         };
         fs.appendFileSync(FEEDBACK_FALLBACK_FILE, `${JSON.stringify(safePayload)}\n`, 'utf8');
         return true;
@@ -192,6 +199,8 @@ app.post('/api/feedback', feedbackLimiter, async (req, res) => {
         const updatesConsent = body.updatesConsent === true || body.updatesConsent === 'true' || body.updatesConsent === 'yes';
         const provider = sanitizeText(body.provider, 32);
         const appVersion = sanitizeText(body.appVersion, 32) || '1.0.0';
+        const page = sanitizeText(body.page, 500);
+        const userAgent = sanitizeText(req.get('user-agent') || body.userAgent, 500);
 
         if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
             return res.status(400).json({ success: false, error: 'Choose a star rating before sending.' });
@@ -205,29 +214,23 @@ app.post('/api/feedback', feedbackLimiter, async (req, res) => {
             return res.status(400).json({ success: false, error: 'Enter a valid email or leave it blank.' });
         }
 
-        const params = new URLSearchParams({
-            createdAt: new Date().toISOString(),
-            rating: String(rating),
-            message,
-            email,
-            updatesConsent: updatesConsent && email ? 'yes' : 'no',
-            provider,
-            appVersion,
-            source: 'Claude2PDF Document Preview'
-        });
-
+        const consent = updatesConsent && email;
         const feedbackPayload = {
-            rating: String(rating),
+            createdAt: new Date().toISOString(),
+            rating,
             message,
             email,
-            updatesConsent: updatesConsent && email ? 'yes' : 'no',
+            updatesConsent: consent,
+            wantsUpdates: consent,
             provider,
             appVersion,
-            source: 'Claude2PDF Document Preview'
+            source: 'Claude2PDF Document Preview',
+            page,
+            userAgent
         };
 
         try {
-            await postUrlEncoded(FEEDBACK_ENDPOINT, params);
+            await postJson(FEEDBACK_ENDPOINT, feedbackPayload);
             return res.json({ success: true });
         } catch (upstreamError) {
             console.error('[-] Feedback upstream error:', upstreamError.message);
