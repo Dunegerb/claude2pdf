@@ -1,79 +1,21 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="google-site-verification" content="tJJerxy_3ce-QXnEHNrBpRgpdPxU8IvRKSx2yWH4BUQ" />
-    <meta name="msvalidate.01" content="PUT_YOUR_CODE_HERE" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    
-    <title>Claude AI Online Tools & Guides | Claude2PDF</title>
-    <meta name="description" content="Explore our complete collection of free online tools and guides to export, archive, and master Claude AI conversations." />
-    <link rel="canonical" href="https://claude2pdf.up.railway.app/tools" />
-
-    <!-- Google Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
-
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-      tailwind.config = {
-        theme: {
-          extend: {
-            fontFamily: { sans: ["Inter", "sans-serif"], serif: ["Playfair Display", "serif"] },
-            colors: { apple: { bg: "#fbfbfd", surface: "#ffffff", text: "#1d1d1f", subtext: "#86868b", border: "#d2d2d7" } },
-          },
-        },
-      };
-    </script>
-
-    <style>
-      .fade-in-up { animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; opacity: 0; }
-      @keyframes fadeInUp { 0% { opacity: 0; transform: translateY(16px); } 100% { opacity: 1; transform: translateY(0); } }
-    </style>
-  </head>
-  <body class="bg-apple-bg min-h-screen text-apple-text font-sans antialiased">
-    <!-- Header -->
-    <nav class="w-full bg-apple-bg/80 backdrop-blur-md sticky top-0 z-50 border-b border-apple-border/50">
-      <div class="max-w-5xl mx-auto px-6 py-5 flex justify-between items-center">
-        <a href="/" class="font-serif italic font-semibold text-2xl tracking-tight">Claude2PDF.</a>
-      </div>
-    </nav>
-
-    <main class="max-w-5xl mx-auto px-6 py-20">
-      <div class="text-center mb-20 fade-in-up">
-        <h1 class="text-4xl md:text-5xl font-serif font-semibold text-apple-text mb-6 tracking-tight">
-          Claude AI Tools & Guides
-        </h1>
-        <p class="text-apple-subtext text-xl font-light tracking-wide max-w-2xl mx-auto leading-relaxed">
-          Master your AI interactions with our suite of specialized utilities and archival guides.
-        </p>
-      </div>
-
-      <!-- Grid of Tools -->
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 fade-in-up">
-        <% pages.forEach(page => { %>
-        <a href="/tools/<%= page.slug %>" class="group bg-apple-surface rounded-3xl p-8 border border-apple-border/30 hover:shadow-xl hover:-translate-y-1 transition-all duration-500 flex flex-col h-full">
-            <h2 class="text-xl font-serif font-semibold text-apple-text group-hover:text-black transition-colors mb-3">
-                <%= page.title.split('|')[0].trim() %>
-            </h2>
-            <p class="text-sm text-apple-subtext font-light leading-relaxed mb-6 flex-grow">
-                <%= page.description %>
-            </p>
-            <span class="text-xs font-semibold text-apple-text flex items-center gap-2 group-hover:gap-3 transition-all">
-                Learn more 
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"></path></svg>
-            </span>
-        </a>
-        <% }) %>
-      </div>
-
-      <!-- Footer CTA -->
-      <footer class="mt-32 pt-10 border-t border-apple-border/30 text-center">
-        <p class="text-xs text-apple-subtext uppercase tracking-widest font-medium">Built by Claude2PDF</p>
-      </footer>
-    </main>
-  </body>
-</html>
+<head>
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Conversation Export Tools & Guides | Claude2PDF</title>
+  <meta name="description" content="Browse Claude2PDF export, archive and document guides for AI conversations, plus focused Claude workflows and searchable PDF resources." />
+  <link rel="canonical" href="https://claude2pdf.up.railway.app/tools" /><link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <meta property="og:type" content="website" /><meta property="og:title" content="AI Conversation Export Tools & Guides | Claude2PDF" /><meta property="og:description" content="Focused guides for exporting, archiving and printing AI conversations." /><meta property="og:url" content="https://claude2pdf.up.railway.app/tools" />
+  <meta name="twitter:card" content="summary" /><meta name="twitter:title" content="AI Conversation Export Tools & Guides" /><meta name="twitter:description" content="Focused guides for exporting, archiving and printing AI conversations." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" /><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin /><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600&display=swap" rel="stylesheet" /><link rel="stylesheet" href="/site-pages.css" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"CollectionPage","name":"Claude2PDF Tools and Guides","url":"https://claude2pdf.up.railway.app/tools","description":"Export and archive guides for AI conversations.","mainEntity":{"@type":"ItemList","numberOfItems":<%= pages.length %>,"itemListElement":[<% pages.forEach((page,index)=>{ %>{"@type":"ListItem","position":<%= index+1 %>,"url":"https://claude2pdf.up.railway.app/tools/<%= page.slug %>","name":<%- JSON.stringify(page.title.split('|')[0].trim()) %>}<%= index < pages.length-1 ? ',' : '' %><% }) %>]}}</script>
+</head>
+<body>
+  <%- include('partials/site-header', { current: 'tools' }) %>
+  <main class="page-main">
+    <section class="page-hero site-shell"><span class="eyebrow">Tools & guides</span><h1 class="page-title">Make AI conversations easier to keep, print and revisit.</h1><p class="page-lede">A growing library of focused export and archive guides. The current library is Claude-heavy, while the main converter supports Claude, ChatGPT, Gemini and Grok public share links.</p><div class="hero-actions"><a class="button-primary" href="/">Open converter</a><a class="button-secondary" href="/features">View features</a></div></section>
+    <section class="section site-shell"><div class="section-head"><p class="section-kicker">Library</p><h2 class="section-title"><%= pages.length %> focused export workflows.</h2><p class="section-copy">Each guide explains a specific use case and links back to the main converter when the workflow is supported.</p></div><div class="tool-grid"><% pages.forEach(page => { %><a href="/tools/<%= page.slug %>" class="tool-card"><span class="tool-card__tag">Guide</span><h2><%= page.title.split('|')[0].trim() %></h2><p><%= page.description %></p><span class="tool-card__more">Read guide <span>→</span></span></a><% }) %></div></section>
+    <section class="section site-shell"><div class="callout"><div><h2>Need the product overview instead?</h2><p>See supported providers, privacy architecture, output capabilities and honest limitations.</p></div><a class="button-secondary" href="/features">Explore features</a></div></section>
+  </main>
+  <%- include('partials/site-footer') %>
+</body></html>

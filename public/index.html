@@ -38,6 +38,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/site-footer.css">
   
   <script>
     tailwind.config = {
@@ -760,7 +761,7 @@
               <div id="answer-grid-faq-2" class="grid faq-grid-transition" style="grid-template-rows: 0fr;">
                 <div class="overflow-hidden">
                   <div id="answer-text-faq-2" class="faq-content-transition px-5 pb-5 text-small leading-6 opacity-0 -translate-y-1.5">
-                    Yes. The PDF is rendered in your browser. Your conversation content is not stored, logged, or kept on external servers.
+                    The public share URL is sent to Claude2PDF’s extraction server so it can temporarily load the public page. Parsing, preview and PDF export happen in your browser, and the application does not intentionally persist conversation content.
                   </div>
                 </div>
               </div>
@@ -773,13 +774,13 @@
           <div class="overflow-hidden pb-2.5">
             <div class="overflow-hidden rounded-2xl bg-neutral-50/70 border border-transparent hover:border-neutral-200 transition-colors duration-200">
               <button class="flex w-full items-start justify-between gap-4 px-5 py-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:ring-inset" onclick="toggleFaq('faq-3')" type="button">
-                <span id="question-faq-3" class="font-medium text-[15px] text-foreground leading-6 tracking-[-0.02em]">What kind of Claude link should I paste?</span>
+                <span id="question-faq-3" class="font-medium text-[15px] text-foreground leading-6 tracking-[-0.02em]">What kind of AI chat link should I paste?</span>
                 <svg id="chevron-faq-3" class="mt-1 size-4 shrink-0 text-neutral-400 transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"></path></svg>
               </button>
               <div id="answer-grid-faq-3" class="grid faq-grid-transition" style="grid-template-rows: 0fr;">
                 <div class="overflow-hidden">
                   <div id="answer-text-faq-3" class="faq-content-transition px-5 pb-5 text-small leading-6 opacity-0 -translate-y-1.5">
-                    Use a public https://claude.ai/share/... link. Private workspace links and logged-in session URLs will not work until the conversation is shared publicly.
+                    Use a full public /share/ link from Claude, ChatGPT, Gemini or Grok. Private workspace links, logged-in session URLs and shortened Gemini g.co links are not supported.
                   </div>
                 </div>
               </div>
@@ -798,7 +799,7 @@
               <div id="answer-grid-faq-4" class="grid faq-grid-transition" style="grid-template-rows: 0fr;">
                 <div class="overflow-hidden">
                   <div id="answer-text-faq-4" class="faq-content-transition px-5 pb-5 text-small leading-6 opacity-0 -translate-y-1.5">
-                    Use Failsafe Mode. Open the Claude share page source, copy the HTML, and paste it into Claude2PDF. The tool can then build the same PDF locally.
+                    Confirm that the conversation is publicly shared and that you pasted the full provider URL. Provider page structures can change, so a temporary extraction error may require trying again later.
                   </div>
                 </div>
               </div>
@@ -871,6 +872,36 @@
       decoding="async"
     />
   </section>
+
+  <footer class="c2p-footer c2p-footer--bleed" aria-label="Claude2PDF footer">
+    <div class="c2p-footer__inner">
+      <div class="c2p-footer__nav">
+        <div>
+          <span class="c2p-footer__label">Product</span>
+          <ul class="c2p-footer__links">
+            <li><a href="/how-it-works">How It Works</a></li>
+            <li><a href="/features">Features</a></li>
+          </ul>
+        </div>
+        <div>
+          <span class="c2p-footer__label">Legal</span>
+          <ul class="c2p-footer__links">
+            <li><a href="/terms">Terms of Service</a></li>
+            <li><a href="/privacy">Privacy Policy</a></li>
+          </ul>
+        </div>
+      </div>
+  
+      <div class="c2p-footer__wordmark" role="img" aria-label="Claude2PDF">
+        <span id="letter-c" aria-hidden="true">C</span><span id="letter-l" aria-hidden="true">l</span><span id="letter-a" aria-hidden="true">a</span><span id="letter-u" aria-hidden="true">u</span><span id="letter-d" aria-hidden="true">d</span><span id="letter-e" aria-hidden="true">e</span><span id="letter-2" aria-hidden="true">2</span><span id="letter-p" aria-hidden="true">P</span><span id="letter-d-2" aria-hidden="true">D</span><span id="letter-f" aria-hidden="true">F</span>
+      </div>
+  
+      <div class="c2p-footer__bottom">
+        <span>© 2026 Claude2PDF. All rights reserved.</span>
+        <span class="c2p-footer__status">Public-link conversion service</span>
+      </div>
+    </div>
+  </footer>
 
   <!-- Scripts -->
   <script>
@@ -1207,17 +1238,17 @@
       {
             "id": "faq-2",
             "question": "Is my conversation private?",
-            "answer": "Yes. The PDF is rendered in your browser. Your conversation content is not stored, logged, or kept on external servers."
+            "answer": "The public share URL is sent to Claude2PDF’s extraction server so it can temporarily load the public page. Parsing, preview and PDF export happen in your browser, and the application does not intentionally persist conversation content."
       },
       {
             "id": "faq-3",
-            "question": "What kind of Claude link should I paste?",
-            "answer": "Use a public https://claude.ai/share/... link. Private workspace links and logged-in session URLs will not work until the conversation is shared publicly."
+            "question": "What kind of AI chat link should I paste?",
+            "answer": "Use a full public /share/ link from Claude, ChatGPT, Gemini or Grok. Private workspace links, logged-in session URLs and shortened Gemini g.co links are not supported."
       },
       {
             "id": "faq-4",
             "question": "What if automatic extraction fails?",
-            "answer": "Use Failsafe Mode. Open the Claude share page source, copy the HTML, and paste it into Claude2PDF. The tool can then build the same PDF locally."
+            "answer": "Confirm that the conversation is publicly shared and that you pasted the full provider URL. Provider page structures can change, so a temporary extraction error may require trying again later."
       },
       {
             "id": "faq-5",

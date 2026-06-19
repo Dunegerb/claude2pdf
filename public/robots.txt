@@ -3,3 +3,5 @@ Allow: /
 
 User-agent: *
 Allow: /
+
+Sitemap: https://claude2pdf.up.railway.app/sitemap.xml

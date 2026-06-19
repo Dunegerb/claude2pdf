@@ -40,6 +40,14 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ==========================================
+// PÁGINAS INSTITUCIONAIS
+// ==========================================
+app.get('/how-it-works', (req, res) => res.render('how-it-works'));
+app.get('/features', (req, res) => res.render('features'));
+app.get('/privacy', (req, res) => res.render('privacy'));
+app.get('/terms', (req, res) => res.render('terms'));
+
+// ==========================================
 // ROTAS PROGRAMMATIC SEO
 // ==========================================
 
@@ -383,7 +391,7 @@ app.post('/api/extract', limiter, async (req, res) => {
 
     let browser;
     try {
-        console.log(`[+] Iniciando extração para: ${url}`);
+        console.log(`[+] Iniciando extração para host: ${parsedUrl.hostname}`);
         
         browser = await puppeteer.launch({
             headless: 'new',

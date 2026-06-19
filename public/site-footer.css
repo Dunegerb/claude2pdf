@@ -1,0 +1,179 @@
+.c2p-footer {
+  --c2p-footer-bg: #f5f6f7;
+  --c2p-footer-ink: #121317;
+  --c2p-footer-muted: #737880;
+  width: 100%;
+  overflow: hidden;
+  border-top: 1px solid rgba(18, 19, 23, 0.07);
+  background:
+    radial-gradient(circle at 18% 0%, rgba(255,255,255,.92), rgba(255,255,255,0) 32%),
+    var(--c2p-footer-bg);
+  color: var(--c2p-footer-ink);
+}
+
+.c2p-footer--bleed {
+  width: calc(100% + 3rem);
+  margin-right: -1.5rem;
+  margin-left: -1.5rem;
+  align-self: stretch;
+}
+
+.c2p-footer__inner {
+  width: min(100%, 1180px);
+  margin: 0 auto;
+  padding: 68px 28px 24px;
+}
+
+.c2p-footer__nav {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 190px));
+  justify-content: end;
+  gap: 56px;
+}
+
+.c2p-footer__label {
+  display: block;
+  margin-bottom: 15px;
+  color: rgba(18, 19, 23, 0.48);
+  font-family: var(--font-sans, "Plus Jakarta Sans", sans-serif);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+
+.c2p-footer__links {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.c2p-footer__links li + li { margin-top: 9px; }
+
+.c2p-footer__links a {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  color: var(--c2p-footer-ink);
+  font-family: var(--font-sans, "Plus Jakarta Sans", sans-serif);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.45;
+  letter-spacing: -0.02em;
+  text-decoration: none;
+  transition: opacity .18s ease, transform .18s cubic-bezier(.16,1,.3,1);
+}
+
+.c2p-footer__links a::after {
+  content: "↗";
+  margin-left: 6px;
+  color: rgba(18, 19, 23, 0.34);
+  font-size: 11px;
+  transform: translateY(-1px);
+  transition: transform .18s cubic-bezier(.16,1,.3,1), color .18s ease;
+}
+
+.c2p-footer__links a:hover,
+.c2p-footer__links a:focus-visible {
+  opacity: .72;
+  transform: translateY(-1px);
+}
+
+.c2p-footer__links a:hover::after,
+.c2p-footer__links a:focus-visible::after {
+  color: currentColor;
+  transform: translate(2px, -2px);
+}
+
+.c2p-footer__links a:focus-visible {
+  outline: 2px solid rgba(18, 19, 23, .14);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+.c2p-footer__wordmark {
+  display: flex;
+  width: 100%;
+  margin: clamp(62px, 9vw, 118px) 0 0;
+  white-space: nowrap;
+  color: #121317;
+  font-family: var(--font-sans, "Plus Jakarta Sans", sans-serif);
+  font-size: clamp(54px, 13.2vw, 168px);
+  font-weight: 600;
+  line-height: .78;
+  letter-spacing: -.075em;
+  transform: translateX(-.018em);
+  user-select: none;
+}
+
+.c2p-footer__wordmark span {
+  display: inline-block;
+  transform-origin: 50% 80%;
+  transition: transform .35s cubic-bezier(.16,1,.3,1), opacity .35s ease;
+}
+
+.c2p-footer:hover .c2p-footer__wordmark span:nth-child(2n) { transform: translateY(-2px); }
+.c2p-footer:hover .c2p-footer__wordmark span:nth-child(3n) { transform: translateY(2px); }
+
+.c2p-footer__bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 34px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(18, 19, 23, 0.08);
+  color: var(--c2p-footer-muted);
+  font-family: var(--font-sans, "Plus Jakarta Sans", sans-serif);
+  font-size: 11px;
+  line-height: 1.5;
+  letter-spacing: -.01em;
+}
+
+.c2p-footer__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.c2p-footer__status::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #4e8f68;
+  box-shadow: 0 0 0 4px rgba(78,143,104,.09);
+}
+
+@media (max-width: 700px) {
+  .c2p-footer__inner { padding: 52px 22px 20px; }
+  .c2p-footer__nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-content: stretch;
+    gap: 32px;
+  }
+  .c2p-footer__wordmark {
+    margin-top: 68px;
+    font-size: clamp(48px, 15.7vw, 104px);
+  }
+  .c2p-footer__bottom {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+}
+
+@media (max-width: 420px) {
+  .c2p-footer__inner { padding-inline: 18px; }
+  .c2p-footer__nav { gap: 20px; }
+  .c2p-footer__links a { font-size: 13px; }
+  .c2p-footer__wordmark { font-size: 15.5vw; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .c2p-footer *, .c2p-footer *::before, .c2p-footer *::after {
+    animation: none !important;
+    transition-duration: .001ms !important;
+  }
+}
