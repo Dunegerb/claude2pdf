@@ -63,6 +63,106 @@ const limiter = rateLimit({
     message: { error: "Muitas requisições. Tente novamente mais tarde." }
 });
 
+
+async function collectChatGPTHTML(page, url) {
+    // ChatGPT shared conversations may virtualize older turns. If we call
+    // page.content() only after scrolling, the first turns can disappear from
+    // the live DOM. This collector snapshots visible turns while moving from
+    // top to bottom and then builds a stable synthetic HTML document.
+    return await page.evaluate(async (sourceUrl) => {
+        const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+        function getScrollTarget() {
+            const candidates = [document.scrollingElement, document.documentElement, document.body, ...Array.from(document.querySelectorAll('main, [class*="overflow-y-auto"], [class*="scroll"], [data-testid]'))];
+            return candidates
+                .filter(Boolean)
+                .map((el) => ({ el, delta: (el.scrollHeight || 0) - (el.clientHeight || 0) }))
+                .sort((a, b) => b.delta - a.delta)[0]?.el || document.scrollingElement || document.documentElement;
+        }
+
+        function cleanClone(node) {
+            const clone = node.cloneNode(true);
+            clone.querySelectorAll([
+                'script', 'style', 'noscript', 'template', 'button', 'input', 'textarea', 'select',
+                'nav', 'footer', 'aside', 'form', 'iframe', 'canvas', 'audio', 'video',
+                '[aria-hidden="true"]', '.sr-only', '.hidden', '.sticky', '.order-first',
+                '[class*="actions"]', '[class*="copy"]', '[class*="popover"]', '[class*="tooltip"]'
+            ].join(',')).forEach(el => el.remove());
+            return clone;
+        }
+
+        function turnKey(node) {
+            return node.getAttribute('data-turn-id') ||
+                node.getAttribute('data-turn-id-container') ||
+                node.getAttribute('data-testid') ||
+                `${node.getAttribute('data-turn') || ''}:${(node.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 180)}`;
+        }
+
+        const turns = new Map();
+        const capture = () => {
+            document.querySelectorAll('section[data-turn], [data-testid^="conversation-turn-"]').forEach((node) => {
+                const text = (node.textContent || '').replace(/\s+/g, ' ').trim();
+                if (!text) return;
+                const key = turnKey(node);
+                if (!key || turns.has(key)) return;
+                turns.set(key, cleanClone(node).outerHTML);
+            });
+        };
+
+        const target = getScrollTarget();
+        const maxSteps = 72;
+        const stepSize = Math.max(420, Math.floor((window.innerHeight || 900) * 0.72));
+        let stagnant = 0;
+        let lastTop = -1;
+        let lastCount = -1;
+
+        try { target.scrollTo ? target.scrollTo(0, 0) : window.scrollTo(0, 0); } catch (_) { window.scrollTo(0, 0); }
+        await sleep(700);
+        capture();
+
+        for (let i = 0; i < maxSteps; i += 1) {
+            const beforeTop = target.scrollTop || window.scrollY || 0;
+            const beforeCount = turns.size;
+            try {
+                target.scrollBy ? target.scrollBy(0, stepSize) : window.scrollBy(0, stepSize);
+            } catch (_) {
+                window.scrollBy(0, stepSize);
+            }
+            await sleep(240);
+            capture();
+
+            const afterTop = target.scrollTop || window.scrollY || 0;
+            const maxTop = Math.max(0, (target.scrollHeight || document.documentElement.scrollHeight || 0) - (target.clientHeight || window.innerHeight || 0));
+            const atBottom = afterTop >= maxTop - 8 || afterTop === beforeTop;
+            const noNewTurns = turns.size === beforeCount;
+            const samePosition = afterTop === lastTop && turns.size === lastCount;
+
+            if ((atBottom && noNewTurns) || samePosition) stagnant += 1;
+            else stagnant = 0;
+
+            lastTop = afterTop;
+            lastCount = turns.size;
+
+            if (stagnant >= 3) break;
+        }
+
+        capture();
+        try { target.scrollTo ? target.scrollTo(0, 0) : window.scrollTo(0, 0); } catch (_) { window.scrollTo(0, 0); }
+
+        const title = document.title || '';
+        const canonical = document.querySelector('link[rel="canonical"]')?.getAttribute('href') || sourceUrl || '';
+        const ogTitle = document.querySelector('meta[property="og:title"]')?.getAttribute('content') || '';
+        const ogDescription = document.querySelector('meta[property="og:description"]')?.getAttribute('content') || '';
+
+        return `<!doctype html><html lang="${document.documentElement.lang || 'en'}"><head>` +
+            `<title>${title.replace(/</g, '&lt;')}</title>` +
+            `<link rel="canonical" href="${canonical.replace(/"/g, '&quot;')}">` +
+            `<meta property="og:title" content="${ogTitle.replace(/"/g, '&quot;')}">` +
+            `<meta property="og:description" content="${ogDescription.replace(/"/g, '&quot;')}">` +
+            `</head><body><main id="c2p-collected-chatgpt" data-provider="chatgpt">${Array.from(turns.values()).join('\n')}</main></body></html>`;
+    }, url);
+}
+
 // ==========================================
 // ROTA DE EXTRAÇÃO (API)
 // ==========================================
@@ -145,29 +245,41 @@ app.post('/api/extract', limiter, async (req, res) => {
             console.log(`[-] Timeout aguardando conteúdo de ${provider}. Tentando extrair mesmo assim.`);
         }
 
-        // Dá tempo para frameworks client-side finalizarem renderização e força lazy content.
+        // Dá tempo para frameworks client-side finalizarem renderização.
+        // ChatGPT é tratado de forma especial: coletamos os turns ao longo do
+        // scroll para não perder o começo por virtualização do DOM.
+        let html;
         try {
             await page.waitForNetworkIdle({ idleTime: 700, timeout: 10000 }).catch(() => {});
-            await page.evaluate(async () => {
-                await new Promise((resolve) => {
-                    let totalHeight = 0;
-                    const distance = 650;
-                    const maxHeight = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
-                    const timer = setInterval(() => {
-                        window.scrollBy(0, distance);
-                        totalHeight += distance;
-                        if (totalHeight >= maxHeight + distance) {
-                            clearInterval(timer);
-                            window.scrollTo(0, 0);
-                            resolve();
-                        }
-                    }, 140);
-                });
-            });
-            await new Promise(resolve => setTimeout(resolve, provider === 'chatgpt' || provider === 'gemini' ? 1600 : 900));
-        } catch (e) {}
 
-        const html = await page.content();
+            if (provider === 'chatgpt') {
+                html = await collectChatGPTHTML(page, url);
+                if (!/data-message-author-role|conversation-turn-|data-turn=/i.test(html)) {
+                    html = await page.content();
+                }
+            } else {
+                await page.evaluate(async () => {
+                    await new Promise((resolve) => {
+                        let totalHeight = 0;
+                        const distance = 650;
+                        const maxHeight = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
+                        const timer = setInterval(() => {
+                            window.scrollBy(0, distance);
+                            totalHeight += distance;
+                            if (totalHeight >= maxHeight + distance) {
+                                clearInterval(timer);
+                                window.scrollTo(0, 0);
+                                resolve();
+                            }
+                        }, 140);
+                    });
+                });
+                await new Promise(resolve => setTimeout(resolve, provider === 'gemini' ? 1600 : 900));
+                html = await page.content();
+            }
+        } catch (e) {
+            html = await page.content();
+        }
 
         if (html.includes("Just a moment...") || html.includes("Cloudflare")) {
             throw new Error("O link foi protegido ou não pôde ser extraído automaticamente. Tente novamente com um link público /share/.");
