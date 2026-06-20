@@ -326,5 +326,205 @@
         "a": "Yes. The PDF rendering happens entirely in your browser. We don't store, log, or transmit your conversation content. In Failsafe Mode, your data never even reaches our server."
       }
     ]
+  },
+  {
+    "slug": "chatgpt-to-pdf-online",
+    "keyword": "ChatGPT to PDF online",
+    "title": "Convert ChatGPT to PDF Online | Free & Private Tool",
+    "description": "The safest and fastest way to convert ChatGPT conversations to PDF online. Retain text formatting, math equations, and code blocks with absolute privacy.",
+    "h1": "Convert ChatGPT Chat to PDF Online",
+    "intro": "Standard browser printing often cuts off lines of code and math in long ChatGPT threads. Our tool is optimized to parse the ChatGPT DOM structure and output a clean, editorial-quality PDF.",
+    "useCase": "Perfect for students, developers, and educators who need to save ChatGPT explanations, coding logs, or lesson plans cleanly.",
+    "ctaText": "Convert ChatGPT to PDF",
+    "relatedSlugs": ["save-chatgpt-as-pdf", "convert-chatgpt-to-pdf", "claude-to-pdf-online"],
+    "noindex": false,
+    "sections": [
+      {
+        "title": "Convert ChatGPT Share Link to PDF",
+        "content": "Easily convert any public ChatGPT share URL (chatgpt.com/share/...) into a perfectly formatted, searchable PDF. Just copy the link, paste it into our Auto Extraction tab, and our server-assisted engine parses the content instantly. We prioritize privacy — no sign-up or accounts required, and code/math structures render perfectly."
+      }
+    ],
+    "faqs": [
+      {
+        "q": "Can I convert ChatGPT shared links?",
+        "a": "Yes. Copy the public chatgpt.com/share/... link and paste it into our Auto Extraction tab to generate your PDF."
+      },
+      {
+        "q": "Does it support ChatGPT-4o and custom GPTs?",
+        "a": "Yes, our crawler fully supports the latest OpenAI conversation layouts, custom GPT outputs, and dynamic text blocks."
+      },
+      {
+        "q": "Are math formulas and code blocks preserved?",
+        "a": "Absolutely. Inline code, syntax-highlighted blocks, and LaTeX/math structures are mapped cleanly to our high-fidelity PDF output."
+      }
+    ]
+  },
+  {
+    "slug": "save-chatgpt-as-pdf",
+    "keyword": "Save ChatGPT as PDF",
+    "title": "Save ChatGPT as PDF | Secure Local Chat Archiver",
+    "description": "Learn how to save ChatGPT conversations to PDF securely. Archive your AI history offline without trackers, accounts, or analytics.",
+    "h1": "Save ChatGPT Conversations as PDF",
+    "intro": "Protect your knowledge assets. Saving your ChatGPT conversations locally ensures you always have access to key programming steps, outlines, and prompts even if OpenAI logs change.",
+    "useCase": "Ideal for researchers and developers keeping a private archive of their AI brainstorming sessions.",
+    "ctaText": "Save ChatGPT to PDF Now",
+    "relatedSlugs": ["chatgpt-to-pdf-online", "convert-chatgpt-to-pdf", "save-claude-as-pdf"],
+    "noindex": false,
+    "faqs": [
+      {
+        "q": "How does it handle long ChatGPT threads?",
+        "a": "Our extraction engine scrolls and snapshots the complete DOM layout to prevent content cut-offs that standard page captures struggle with."
+      },
+      {
+        "q": "Is the parsing process private?",
+        "a": "Yes. The final PDF rendering occurs client-side in your browser. For highly sensitive private chats, you can paste the HTML directly into our Failsafe Mode."
+      }
+    ]
+  },
+  {
+    "slug": "convert-chatgpt-to-pdf",
+    "keyword": "Convert ChatGPT to PDF",
+    "title": "Convert ChatGPT to PDF | Instant Chat Export Utility",
+    "description": "Instantly convert ChatGPT conversations to PDF with a single click. Clean styles, customizable layouts, and absolute privacy.",
+    "h1": "Convert ChatGPT Chats to PDF Instantly",
+    "intro": "Banish messy copying and pasting. Directly convert your ChatGPT share links into beautifully structured documents that are optimized for reading and local storage.",
+    "useCase": "Excellent for developers compiling code guides or teams sharing key AI project logs.",
+    "ctaText": "Convert Chat to PDF",
+    "relatedSlugs": ["chatgpt-to-pdf-online", "save-chatgpt-as-pdf", "claude-chat-to-pdf"],
+    "noindex": false,
+    "faqs": [
+      {
+        "q": "Do I need to sign in with an OpenAI account?",
+        "a": "No, you don't. We do not require accounts, cookies, or APIs. Just paste the public share URL and get your document."
+      }
+    ]
+  },
+  {
+    "slug": "gemini-to-pdf-online",
+    "keyword": "Gemini to PDF online",
+    "title": "Convert Gemini to PDF Online | Free & Private Tool",
+    "description": "The easiest way to convert Google Gemini conversations to PDF online. Retain bullet lists, tables, and source code formatting perfectly.",
+    "h1": "Convert Google Gemini Chat to PDF Online",
+    "intro": "Google Gemini share links are easy to read but hard to save. Our online tool extracts the dynamic Gemini content and renders it into a clean, searchable PDF document.",
+    "useCase": "Designed for researchers and professional analysts who want to store Gemini answers inside secure local archives.",
+    "ctaText": "Convert Gemini to PDF",
+    "relatedSlugs": ["save-gemini-as-pdf", "convert-gemini-to-pdf", "claude-to-pdf-online"],
+    "noindex": false,
+    "sections": [
+      {
+        "title": "Convert Gemini Share Link to PDF",
+        "content": "Paste any public gemini.google.com/share/... link into our converter. Our server securely fetches the conversation, and your browser constructs a structured PDF layout — preserving lists, code segments, and tabular outputs without formatting breaks."
+      }
+    ],
+    "faqs": [
+      {
+        "q": "Can I convert Gemini share links?",
+        "a": "Yes. Paste any public gemini.google.com/share/... URL into the Auto Extraction tab to instantly download your PDF."
+      },
+      {
+        "q": "Does it support short g.co links?",
+        "a": "Please make sure to use the full gemini.google.com/share/... URL, as the crawler requires the final target page to extract contents successfully."
+      }
+    ]
+  },
+  {
+    "slug": "save-gemini-as-pdf",
+    "keyword": "Save Gemini as PDF",
+    "title": "Save Gemini as PDF | Clean & Private Offline Archiver",
+    "description": "Learn how to save Google Gemini chats as PDF. Free, secure, and styled to maintain structured formatting and markdown lists.",
+    "h1": "Save Google Gemini Conversations as PDF",
+    "intro": "Keep a permanent copy of your AI answers. Saving Google Gemini logs as local PDFs keeps your notes searchable and accessible offline at any time.",
+    "useCase": "Great for students compiling class research or writers saving article outlines generated by Gemini.",
+    "ctaText": "Save Gemini to PDF Now",
+    "relatedSlugs": ["gemini-to-pdf-online", "convert-gemini-to-pdf", "save-claude-as-pdf"],
+    "noindex": false,
+    "faqs": [
+      {
+        "q": "Are the generated PDFs fully searchable?",
+        "a": "Yes. The converter outputs text vectors, meaning the final PDF file contains actual selectable and searchable text, not an image scan."
+      }
+    ]
+  },
+  {
+    "slug": "convert-gemini-to-pdf",
+    "keyword": "Convert Gemini to PDF",
+    "title": "Convert Gemini to PDF | Instant Google AI Chat Export",
+    "description": "Convert Google Gemini conversations to PDF with clean spacing, geometric typography, and perfect page-break alignment.",
+    "h1": "Convert Google Gemini Chats to PDF",
+    "intro": "Turn Gemini conversations into professional documents in seconds. Our layout strips away web headers and focuses strictly on content readability.",
+    "useCase": "Perfect for developers and editors who need to convert programming code and long responses into readable documents.",
+    "ctaText": "Convert Gemini to PDF",
+    "relatedSlugs": ["gemini-to-pdf-online", "save-gemini-as-pdf", "claude-chat-to-pdf"],
+    "noindex": false,
+    "faqs": [
+      {
+        "q": "Do I need to install browser extensions?",
+        "a": "No. The utility is 100% web-based. Simply paste the link, preview the document, and download the finished PDF."
+      }
+    ]
+  },
+  {
+    "slug": "grok-to-pdf-online",
+    "keyword": "Grok to PDF online",
+    "title": "Convert Grok to PDF Online | Free & Private Archiver",
+    "description": "Convert public xAI Grok conversations into clean, searchable PDFs online. Perfect for saving programming answers and news summaries.",
+    "h1": "Convert Grok Chat to PDF Online",
+    "intro": "xAI's Grok conversations can contain vast amounts of structured details. Our online tool converts public Grok share links into pristine, searchable PDFs.",
+    "useCase": "Great for power users and developers archiving Grok code outputs, research points, and real-time news analyses.",
+    "ctaText": "Convert Grok to PDF",
+    "relatedSlugs": ["save-grok-as-pdf", "convert-grok-to-pdf", "claude-to-pdf-online"],
+    "noindex": false,
+    "sections": [
+      {
+        "title": "Convert Grok Share Link to PDF",
+        "content": "Paste your public grok.com/share/... link into our converter. Our server fetches the content in-memory, parses the chat messages, and builds a searchable PDF archive with all formatting intact."
+      }
+    ],
+    "faqs": [
+      {
+        "q": "Can I convert Grok share links?",
+        "a": "Yes. Copy the public grok.com/share/... link and paste it into our Auto Extraction tab to download your PDF."
+      },
+      {
+        "q": "Are code blocks styled correctly?",
+        "a": "Yes. Grok's formatting is mapped directly to our layout to preserve syntax highlights and indentations."
+      }
+    ]
+  },
+  {
+    "slug": "save-grok-as-pdf",
+    "keyword": "Save Grok as PDF",
+    "title": "Save Grok as PDF | Secure local conversation archive",
+    "description": "Learn how to save Grok chats as PDF. Archive your xAI conversations securely without accounts or analytics tracker.",
+    "h1": "Save Grok Conversations as PDF",
+    "intro": "Never lose your best Grok answers. Save Grok chat history into high-quality local PDFs for permanent indexing.",
+    "useCase": "Ideal for researchers tracking current events and developers needing local reference files.",
+    "ctaText": "Save Grok to PDF Now",
+    "relatedSlugs": ["grok-to-pdf-online", "convert-grok-to-pdf", "save-claude-as-pdf"],
+    "noindex": false,
+    "faqs": [
+      {
+        "q": "Do you store the content on your server?",
+        "a": "No. The server processes the extraction in-memory to bypass CORS, and the PDF rendering happens entirely in your browser."
+      }
+    ]
+  },
+  {
+    "slug": "convert-grok-to-pdf",
+    "keyword": "Convert Grok to PDF",
+    "title": "Convert Grok to PDF | Instant Chat Export Tool",
+    "description": "Quickly convert Grok conversations to PDF online. Free, secure, and optimized for reading and printing.",
+    "h1": "Convert Grok Chats to PDF",
+    "intro": "Directly turn Grok shared conversation URLs into clean, readable document sheets without standard browser headers.",
+    "useCase": "Perfect for anyone sharing Grok search results or coding guides.",
+    "ctaText": "Convert Grok to PDF",
+    "relatedSlugs": ["grok-to-pdf-online", "save-grok-as-pdf", "claude-chat-to-pdf"],
+    "noindex": false,
+    "faqs": [
+      {
+        "q": "Do I need a premium X or Grok account to convert?",
+        "a": "No. As long as you have a public Grok share link, anyone can convert it using our free tool."
+      }
+    ]
   }
 ]
