@@ -10,18 +10,8 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
     
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-      tailwind.config = {
-        theme: {
-          extend: {
-            fontFamily: { sans: ["Inter", "sans-serif"], serif: ["Playfair Display", "serif"] },
-            colors: { apple: { bg: "#fbfbfd", surface: "#ffffff", text: "#1d1d1f", subtext: "#86868b", border: "#d2d2d7" } },
-          },
-        },
-      };
-    </script>
+    <!-- Compiled Production Tailwind CSS -->
+    <link rel="stylesheet" href="/dist/output.css">
 </head>
 <body class="bg-apple-bg min-h-screen text-apple-text font-sans antialiased flex flex-col items-center justify-center">
     <main class="text-center px-6">
