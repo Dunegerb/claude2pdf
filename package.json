@@ -6,7 +6,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js",
-    "build": "tailwindcss -i ./public/input.css -o ./public/output.css --minify"
+    "build": "npx tailwindcss -i ./public/input.css -o ./public/output.css --minify"
   },
   "keywords": [],
   "author": "",
