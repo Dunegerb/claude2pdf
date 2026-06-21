@@ -171,35 +171,194 @@ async function collectChatGPTHTML(page, url) {
     }, url);
 }
 
+async function collectQwenHTML(page, url) {
+    return await page.evaluate((sourceUrl) => {
+        const root = document.querySelector('.share-layout-messages');
+        if (!root) return '';
+
+        const clone = root.cloneNode(true);
+        clone.querySelectorAll([
+            'script', 'style', 'noscript', 'template', 'button', 'input', 'textarea', 'select',
+            'iframe', 'canvas', 'audio', 'video', 'svg', '[role="button"]',
+            '.message-hoc-container', '.user-message-footer', '.response-message-footer'
+        ].join(',')).forEach((node) => node.remove());
+
+        const title = document.querySelector('.share-layout-title')?.textContent?.trim() || document.title || '';
+        const date = document.querySelector('.share-layout-date')?.textContent?.trim() || '';
+        const canonical = document.querySelector('link[rel="canonical"]')?.getAttribute('href') || sourceUrl || '';
+        const escapeAttr = (value) => String(value || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+
+        return `<!doctype html><html lang="${escapeAttr(document.documentElement.lang || 'en')}"><head>` +
+            `<title>${escapeAttr(title)}</title>` +
+            `<link rel="canonical" href="${escapeAttr(canonical)}">` +
+            `</head><body><div class="share-layout-title">${escapeAttr(title)}</div>` +
+            `<div class="share-layout-date">${escapeAttr(date)}</div>${clone.outerHTML}</body></html>`;
+    }, url);
+}
+
+async function collectDeepSeekHTML(page, url) {
+    return await page.evaluate(async (sourceUrl) => {
+        const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const items = new Map();
+
+        function getRoot() {
+            return document.querySelector('.ds-virtual-list-visible-items');
+        }
+
+        function getScrollTarget(root) {
+            const candidates = [];
+            let current = root;
+            while (current) {
+                const delta = (current.scrollHeight || 0) - (current.clientHeight || 0);
+                const style = window.getComputedStyle ? window.getComputedStyle(current) : null;
+                const overflowY = style ? style.overflowY : '';
+                if (delta > 20 && /(auto|scroll|overlay)/i.test(overflowY)) candidates.push({ el: current, delta });
+                current = current.parentElement;
+            }
+            [document.scrollingElement, document.documentElement, document.body].filter(Boolean).forEach((el) => {
+                candidates.push({ el, delta: (el.scrollHeight || 0) - (el.clientHeight || 0) });
+            });
+            return candidates.sort((a, b) => b.delta - a.delta)[0]?.el || document.scrollingElement || document.documentElement;
+        }
+
+        function cleanClone(node) {
+            const clone = node.cloneNode(true);
+            clone.querySelectorAll([
+                'script', 'style', 'noscript', 'template', 'button', 'input', 'textarea', 'select',
+                'iframe', 'canvas', 'audio', 'video', 'svg', '[role="button"]',
+                '.ds-think-content', '.ds-button', '.dbe8cf4a'
+            ].join(',')).forEach((element) => element.remove());
+            return clone;
+        }
+
+        function capture() {
+            const root = getRoot();
+            if (!root) return;
+            Array.from(root.children).forEach((node, index) => {
+                const key = node.getAttribute('data-virtual-list-item-key');
+                if (!key || key === '-999') return;
+                const text = (node.textContent || '').replace(/\s+/g, ' ').trim();
+                if (!text) return;
+                const stableKey = key || `${index}:${text.slice(0, 160)}`;
+                if (!items.has(stableKey)) items.set(stableKey, cleanClone(node).outerHTML);
+            });
+        }
+
+        const initialRoot = getRoot();
+        if (!initialRoot) return '';
+        const target = getScrollTarget(initialRoot);
+        const setTop = (value) => {
+            try {
+                if (target === document.body || target === document.documentElement || target === document.scrollingElement) {
+                    window.scrollTo(0, value);
+                } else {
+                    target.scrollTop = value;
+                    target.dispatchEvent(new Event('scroll', { bubbles: true }));
+                }
+            } catch (_) {
+                window.scrollTo(0, value);
+            }
+        };
+        const currentTop = () => target.scrollTop || window.scrollY || 0;
+        const currentMax = () => Math.max(0, (target.scrollHeight || document.documentElement.scrollHeight || 0) - (target.clientHeight || window.innerHeight || 0));
+
+        setTop(0);
+        await sleep(350);
+        capture();
+
+        let stagnant = 0;
+        for (let step = 0; step < 64; step += 1) {
+            const beforeTop = currentTop();
+            const beforeCount = items.size;
+            const maxTop = currentMax();
+            const increment = Math.max(520, Math.floor((target.clientHeight || window.innerHeight || 800) * 0.82));
+            setTop(Math.min(maxTop, beforeTop + increment));
+            await sleep(120);
+            capture();
+
+            const afterTop = currentTop();
+            const atBottom = afterTop >= currentMax() - 8 || afterTop === beforeTop;
+            const noNewItems = items.size === beforeCount;
+            stagnant = (atBottom && noNewItems) ? stagnant + 1 : 0;
+            if (stagnant >= 2) break;
+        }
+
+        capture();
+        setTop(0);
+
+        const ordered = Array.from(items.entries()).sort(([a], [b]) => {
+            const numberA = Number(a);
+            const numberB = Number(b);
+            if (Number.isFinite(numberA) && Number.isFinite(numberB)) return numberA - numberB;
+            return String(a).localeCompare(String(b));
+        }).map(([, html]) => html).join('\n');
+
+        const title = document.title || '';
+        const canonical = document.querySelector('link[rel="canonical"]')?.getAttribute('href') ||
+            document.querySelector('meta[property="og:url"]')?.getAttribute('content') || sourceUrl || '';
+        const ogTitle = document.querySelector('meta[property="og:title"]')?.getAttribute('content') || '';
+        const escapeAttr = (value) => String(value || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+
+        return `<!doctype html><html lang="${escapeAttr(document.documentElement.lang || 'en')}"><head>` +
+            `<title>${escapeAttr(title)}</title>` +
+            `<link rel="canonical" href="${escapeAttr(canonical)}">` +
+            `<meta property="og:title" content="${escapeAttr(ogTitle)}">` +
+            `</head><body><div class="ds-virtual-list-visible-items">${ordered}</div></body></html>`;
+    }, url);
+}
+
 // ==========================================
 // ROTA DE EXTRAÇÃO (API)
 // ==========================================
 app.post('/api/extract', limiter, async (req, res) => {
     const { url } = req.body;
 
-    const supportedHosts = [
+    const supportedHosts = new Set([
         'claude.ai',
         'chatgpt.com',
         'gemini.google.com',
-        'grok.com'
-    ];
+        'grok.com',
+        'chat.qwen.ai',
+        'chat.deepseek.com'
+    ]);
 
     let parsedUrl;
     try {
         parsedUrl = new URL(url);
     } catch (error) {
-        return res.status(400).json({ error: "URL inválida. Use um link público de Claude, ChatGPT, Gemini ou Grok." });
+        return res.status(400).json({ error: "URL inválida. Use um link público de uma plataforma suportada." });
     }
 
-    if (parsedUrl.hostname === 'g.co' && parsedUrl.pathname.toLowerCase().includes('/gemini/share/')) {
+    const hostname = parsedUrl.hostname.toLowerCase();
+    const pathname = parsedUrl.pathname;
+
+    if (hostname === 'g.co' && pathname.toLowerCase().includes('/gemini/share/')) {
         return res.status(400).json({ error: "Use the full Gemini share link: https://gemini.google.com/share/..." });
     }
 
-    const isSupportedHost = supportedHosts.includes(parsedUrl.hostname);
-    const isSupportedPath = parsedUrl.pathname.includes('/share/');
+    const providerFromUrl = hostname === 'claude.ai' ? 'claude'
+        : hostname === 'chatgpt.com' ? 'chatgpt'
+        : hostname === 'gemini.google.com' ? 'gemini'
+        : hostname === 'grok.com' ? 'grok'
+        : hostname === 'chat.qwen.ai' ? 'qwen'
+        : hostname === 'chat.deepseek.com' ? 'deepseek'
+        : 'unknown';
 
-    if (!url || typeof url !== 'string' || parsedUrl.protocol !== 'https:' || !isSupportedHost || !isSupportedPath) {
-        return res.status(400).json({ error: "Use a public /share/ link from Claude, ChatGPT, Gemini or Grok." });
+    const hasStandardSharePath = /^\/share\/[A-Za-z0-9_-]+\/?$/i.test(pathname);
+    const hasQwenSharePath = /^\/s\/[A-Za-z0-9_-]+\/?$/i.test(pathname);
+    const isSupportedPath = providerFromUrl === 'qwen' ? hasQwenSharePath : hasStandardSharePath;
+
+    if (
+        !url ||
+        typeof url !== 'string' ||
+        parsedUrl.protocol !== 'https:' ||
+        !supportedHosts.has(hostname) ||
+        providerFromUrl === 'unknown' ||
+        !isSupportedPath
+    ) {
+        return res.status(400).json({
+            error: "Use a supported public share link. Qwen links must use https://chat.qwen.ai/s/... and DeepSeek links must use https://chat.deepseek.com/share/..."
+        });
     }
 
     let browser;
@@ -216,12 +375,9 @@ app.post('/api/extract', limiter, async (req, res) => {
         });
 
         const page = await browser.newPage();
+        await page.setViewport({ width: 1440, height: 1200, deviceScaleFactor: 1 });
 
-        const provider = parsedUrl.hostname.includes('claude.ai') ? 'claude'
-            : parsedUrl.hostname.includes('chatgpt.com') ? 'chatgpt'
-            : parsedUrl.hostname.includes('gemini.google.com') ? 'gemini'
-            : parsedUrl.hostname.includes('grok.com') ? 'grok'
-            : 'unknown';
+        const provider = providerFromUrl;
 
         // Otimização conservadora: bloquear CSS/fontes quebrou a hidratação de
         // algumas páginas públicas do ChatGPT/Gemini. Mantemos imagens e mídia
@@ -248,7 +404,9 @@ app.post('/api/extract', limiter, async (req, res) => {
             claude: '[class*="font-user-message"], [class*="font-claude-message"], .prose, [data-test-render="true"]',
             chatgpt: '[data-message-author-role], section[data-turn], [data-testid^="conversation-turn-"]',
             gemini: 'share-turn-viewer, .share-turn-viewer, .query-text, .markdown-main-panel',
-            grok: '[data-testid="user-message"], [data-testid="assistant-message"]'
+            grok: '[data-testid="user-message"], [data-testid="assistant-message"]',
+            qwen: '.share-layout-messages .qwen-chat-message',
+            deepseek: '.ds-virtual-list-visible-items [data-virtual-list-item-key]'
         };
 
         try {
@@ -267,6 +425,16 @@ app.post('/api/extract', limiter, async (req, res) => {
             if (provider === 'chatgpt') {
                 html = await collectChatGPTHTML(page, url);
                 if (!/data-message-author-role|conversation-turn-|data-turn=/i.test(html)) {
+                    html = await page.content();
+                }
+            } else if (provider === 'qwen') {
+                html = await collectQwenHTML(page, url);
+                if (!/share-layout-messages|qwen-chat-message/i.test(html)) {
+                    html = await page.content();
+                }
+            } else if (provider === 'deepseek') {
+                html = await collectDeepSeekHTML(page, url);
+                if (!/ds-virtual-list-visible-items|data-virtual-list-item-key/i.test(html)) {
                     html = await page.content();
                 }
             } else {

@@ -42,7 +42,7 @@
 
   function stripCommonTitleNoise(title) {
     return String(title || '')
-      .replace(/\s*\|\s*(Shared )?(ChatGPT|Claude|Gemini|Grok).*$/i, '')
+      .replace(/\s*\|\s*(Shared )?(ChatGPT|Claude|Gemini|Grok|Qwen|DeepSeek).*$/i, '')
       .replace(/^Check out this chat$/i, '')
       .trim();
   }
@@ -183,12 +183,245 @@
   }
 
   function detectProvider(htmlText, url = '') {
-    const source = `${url}\n${String(htmlText || '').slice(0, 60000)}`.toLowerCase();
-    if (source.includes('gemini.google.com') || source.includes('share-viewer') || source.includes('bardchatui')) return 'gemini';
-    if (source.includes('grok.com') || source.includes('cdn.grok.com') || source.includes('xai grok')) return 'grok';
-    if (source.includes('chatgpt.com') || source.includes('data-message-author-role') || source.includes('conversation-turn-')) return 'chatgpt';
-    if (source.includes('claude.ai') || source.includes('anthropic') || source.includes('data-test-render')) return 'claude';
+    const urlSource = String(url || '').toLowerCase();
+    if (urlSource.includes('chat.qwen.ai')) return 'qwen';
+    if (urlSource.includes('chat.deepseek.com')) return 'deepseek';
+    if (urlSource.includes('gemini.google.com')) return 'gemini';
+    if (urlSource.includes('grok.com')) return 'grok';
+    if (urlSource.includes('chatgpt.com')) return 'chatgpt';
+    if (urlSource.includes('claude.ai')) return 'claude';
+
+    const source = String(htmlText || '').slice(0, 60000).toLowerCase();
+    if (source.includes('chat.qwen.ai') || source.includes('qwen studio')) return 'qwen';
+    if (source.includes('chat.deepseek.com') || source.includes('ds-markdown')) return 'deepseek';
+    if (source.includes('share-viewer') || source.includes('bardchatui')) return 'gemini';
+    if (source.includes('cdn.grok.com') || source.includes('xai grok')) return 'grok';
+    if (source.includes('data-message-author-role') || source.includes('conversation-turn-')) return 'chatgpt';
+    if (source.includes('anthropic') || source.includes('data-test-render')) return 'claude';
     return 'claude';
+  }
+
+  function normalizeConversationRole(value) {
+    const role = String(value || '').toLowerCase().replace(/[^a-z]/g, '');
+    if (!role) return '';
+    if (/(user|human|question|prompt|client|visitor)/.test(role)) return 'user';
+    if (/(assistant|bot|model|answer|response|qwen|deepseek)/.test(role)) return 'assistant';
+    return '';
+  }
+
+  function nodeRoleHint(node, provider) {
+    if (!node) return '';
+    const readHints = (element) => [
+      element.getAttribute && element.getAttribute('data-message-author-role'),
+      element.getAttribute && element.getAttribute('data-message-role'),
+      element.getAttribute && element.getAttribute('data-role'),
+      element.getAttribute && element.getAttribute('data-author-role'),
+      element.getAttribute && element.getAttribute('data-author'),
+      element.getAttribute && element.getAttribute('data-testid'),
+      element.getAttribute && element.getAttribute('aria-label'),
+      element.id,
+      typeof element.className === 'string' ? element.className : ''
+    ].filter(Boolean).join(' ');
+
+    let role = normalizeConversationRole(readHints(node));
+    if (role) return role;
+
+    let current = node.parentElement;
+    for (let depth = 0; current && depth < 4; depth += 1, current = current.parentElement) {
+      role = normalizeConversationRole(readHints(current));
+      if (role) return role;
+    }
+
+    if (provider === 'deepseek' && node.matches && node.matches('.ds-markdown, [class*="markdown-body"]')) return 'assistant';
+    if (provider === 'qwen' && node.matches && node.matches('.qwen-markdown, [class*="qwen-markdown"], [class*="markdown-body"]')) return 'assistant';
+    return '';
+  }
+
+  function providerNoise(text, provider) {
+    const value = String(text || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (!value) return true;
+    const common = [
+      'sign in', 'log in', 'download app', 'privacy policy', 'terms of service',
+      'copy link', 'share conversation', 'report conversation', 'new chat'
+    ];
+    const qwen = [
+      'go to qwen', 'official app provided by qwen', 'get the app',
+      'current system does not support', 'qwen is actively working to ensure compatibility',
+      'designed for mobile devices'
+    ];
+    const deepseek = [
+      'verifying you are human', 'security check', 'performance & security by cloudflare',
+      'deepseek can make mistakes'
+    ];
+    return [...common, ...(provider === 'qwen' ? qwen : []), ...(provider === 'deepseek' ? deepseek : [])]
+      .some(noise => value === noise || value.startsWith(`${noise} `));
+  }
+
+  function bestProviderContentNode(node, role, provider) {
+    if (!node) return null;
+    const selectors = role === 'assistant'
+      ? (provider === 'deepseek'
+        ? '.ds-markdown, [class*="ds-markdown"], [class*="markdown-body"], .markdown, .prose, [class*="markdown"], [class*="message-content"], [class*="content"]'
+        : '.qwen-markdown, [class*="qwen-markdown"], [class*="markdown-body"], .markdown, .prose, [class*="markdown"], [class*="message-content"], [class*="content"]')
+      : '[class*="message-content"], [class*="content"], [class*="bubble"], [class*="text"], p';
+
+    const wholeText = textOf(node);
+    const nested = Array.from(node.querySelectorAll ? node.querySelectorAll(selectors) : [])
+      .filter(candidate => {
+        const text = textOf(candidate);
+        return text && !providerNoise(text, provider) && text.length >= Math.max(1, Math.floor(wholeText.length * 0.55));
+      })
+      .sort((a, b) => textOf(a).length - textOf(b).length);
+    return nested[0] || node;
+  }
+
+  function collectProviderDOMMessages(doc, provider) {
+    const root = doc.querySelector('main') || doc.body;
+    const selector = [
+      '[data-message-author-role]', '[data-message-role]', '[data-role]', '[data-author-role]', '[data-author]',
+      '[data-testid="user-message"]', '[data-testid="assistant-message"]',
+      '[data-testid*="user-message"]', '[data-testid*="assistant-message"]',
+      '.user-message', '.assistant-message', '[class*="UserMessage"]', '[class*="AssistantMessage"]',
+      '[class*="user-message"]', '[class*="assistant-message"]',
+      '.ds-markdown', '[class*="ds-markdown"]', '.qwen-markdown', '[class*="qwen-markdown"]'
+    ].join(',');
+
+    const candidates = Array.from(root.querySelectorAll(selector)).map((node, index) => ({
+      node,
+      index,
+      role: nodeRoleHint(node, provider)
+    })).filter(item => item.role);
+
+    if (candidates.length < 2) {
+      Array.from(root.querySelectorAll('[class*="message"], [class*="chat-item"], [class*="conversation-item"], [class*="bubble"]'))
+        .forEach((node, index) => {
+          const role = nodeRoleHint(node, provider);
+          if (role) candidates.push({ node, index: candidates.length + index, role });
+        });
+    }
+
+    candidates.sort((a, b) => {
+      if (a.node === b.node) return 0;
+      const position = a.node.compareDocumentPosition(b.node);
+      if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+      if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+      return a.index - b.index;
+    });
+
+    const messages = [];
+    const seen = new Set();
+    candidates.forEach(({ node, role }) => {
+      const content = bestProviderContentNode(node, role, provider);
+      const text = textOf(content);
+      if (!text || providerNoise(text, provider)) return;
+      const key = `${role}:${dedupeTextKey(text)}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      messages.push(makeMessage(role, content));
+    });
+    return messages;
+  }
+
+  function textFromStructuredValue(value) {
+    if (typeof value === 'string') return value.trim();
+    if (Array.isArray(value)) return value.map(textFromStructuredValue).filter(Boolean).join('\n').trim();
+    if (!value || typeof value !== 'object') return '';
+    const directKeys = ['text', 'content', 'message', 'answer', 'response', 'output', 'query', 'prompt', 'value'];
+    for (const key of directKeys) {
+      if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+      const text = textFromStructuredValue(value[key]);
+      if (text) return text;
+    }
+    if (value.parts) return textFromStructuredValue(value.parts);
+    if (value.children) return textFromStructuredValue(value.children);
+    return '';
+  }
+
+  function collectProviderScriptMessages(doc, htmlText, provider) {
+    const messages = [];
+    const seenMessages = new Set();
+    const seenObjects = new WeakSet();
+
+    function add(roleValue, contentValue) {
+      const role = normalizeConversationRole(roleValue);
+      const text = textFromStructuredValue(contentValue).replace(/\u0000/g, '').trim();
+      if (!role || !text || providerNoise(text, provider) || text.length > 250000) return;
+      const key = `${role}:${dedupeTextKey(text)}`;
+      if (seenMessages.has(key)) return;
+      seenMessages.add(key);
+      messages.push(makeMessage(role, `<p>${escapeHTML(text)}</p>`));
+    }
+
+    function walk(value, depth = 0) {
+      if (!value || depth > 18) return;
+      if (Array.isArray(value)) {
+        value.forEach(item => walk(item, depth + 1));
+        return;
+      }
+      if (typeof value !== 'object') return;
+      if (seenObjects.has(value)) return;
+      seenObjects.add(value);
+
+      const roleValue = value.role || value.authorRole || value.messageRole || value.sender || value.author?.role || value.author?.type;
+      const contentValue = value.content ?? value.text ?? value.message ?? value.answer ?? value.response ?? value.output;
+      if (roleValue && contentValue != null) add(roleValue, contentValue);
+      Object.values(value).forEach(child => walk(child, depth + 1));
+    }
+
+    Array.from(doc.querySelectorAll('script')).forEach((script) => {
+      const raw = (script.textContent || '').trim();
+      if (!raw || raw.length > 8000000) return;
+      if (script.type === 'application/json' || /^[{[]/.test(raw)) {
+        try { walk(JSON.parse(raw)); } catch (_) {}
+        return;
+      }
+      const firstBrace = raw.indexOf('{');
+      const lastBrace = raw.lastIndexOf('}');
+      if (firstBrace >= 0 && lastBrace > firstBrace) {
+        try { walk(JSON.parse(raw.slice(firstBrace, lastBrace + 1))); } catch (_) {}
+      }
+    });
+
+    if (messages.some(message => message.role === 'user') && messages.some(message => message.role === 'assistant')) {
+      return messages;
+    }
+
+    const rawHTML = String(htmlText || '');
+    const patterns = [
+      /["']role["']\s*:\s*["'](user|human|assistant|bot|model)["'][^{}]{0,1800}?["'](?:content|text|message|answer|response)["']\s*:\s*["']((?:\\.|[^"'\\])*)["']/gi,
+      /["'](?:content|text|message|answer|response)["']\s*:\s*["']((?:\\.|[^"'\\])*)["'][^{}]{0,1800}?["']role["']\s*:\s*["'](user|human|assistant|bot|model)["']/gi
+    ];
+    patterns.forEach((pattern, patternIndex) => {
+      let match;
+      let count = 0;
+      while ((match = pattern.exec(rawHTML)) && count < 500) {
+        count += 1;
+        const role = patternIndex === 0 ? match[1] : match[2];
+        const encoded = patternIndex === 0 ? match[2] : match[1];
+        let decoded = encoded;
+        try { decoded = JSON.parse(`"${encoded.replace(/"/g, '\\"')}"`); } catch (_) {
+          decoded = encoded.replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+        }
+        add(role, decoded);
+      }
+    });
+
+    return messages;
+  }
+
+  function mergeProviderMessages(primary, fallback) {
+    if (primary.length >= 2 && primary.some(message => message.role === 'user') && primary.some(message => message.role === 'assistant')) {
+      return primary;
+    }
+    const merged = [];
+    const seen = new Set();
+    [...primary, ...fallback].forEach((message) => {
+      const key = `${message.role}:${dedupeTextKey(message.text)}`;
+      if (!message.text || seen.has(key)) return;
+      seen.add(key);
+      merged.push(message);
+    });
+    return merged;
   }
 
   function parseClaudeHTML(htmlText, sourceUrl = '') {
@@ -609,9 +842,152 @@
     });
   }
 
+  function collectQwenShareMessages(doc) {
+    const root = doc.querySelector('.share-layout-messages');
+    if (!root) return [];
+
+    const messages = [];
+    const seen = new Set();
+    const turns = Array.from(root.querySelectorAll('.qwen-chat-message'));
+
+    turns.forEach((turn) => {
+      const className = String(turn.className || '');
+      const role = /qwen-chat-message-user/i.test(className)
+        ? 'user'
+        : /qwen-chat-message-assistant/i.test(className)
+          ? 'assistant'
+          : '';
+      if (!role) return;
+
+      let content = null;
+      let thought = '';
+
+      if (role === 'user') {
+        content = turn.querySelector('.user-message-content') ||
+          turn.querySelector('.chat-user-message') ||
+          turn.querySelector('.chat-user-message-container') ||
+          turn;
+      } else {
+        const thoughtNode = turn.querySelector('.qwen-chat-thinking-status-card-title-text');
+        thought = textOf(thoughtNode);
+        content = turn.querySelector('.response-message-content.phase-answer .custom-qwen-markdown') ||
+          turn.querySelector('.response-message-content.phase-answer .qwen-markdown') ||
+          turn.querySelector('.response-message-content.phase-answer') ||
+          turn.querySelector('.custom-qwen-markdown') ||
+          turn.querySelector('.qwen-markdown') ||
+          turn;
+      }
+
+      const message = makeMessage(role, content, { thought });
+      const key = `${role}:${dedupeTextKey(message.text)}`;
+      if (!message.text || providerNoise(message.text, 'qwen') || seen.has(key)) return;
+      seen.add(key);
+      messages.push(message);
+    });
+
+    return messages;
+  }
+
+  function collectDeepSeekShareMessages(doc) {
+    const root = doc.querySelector('.ds-virtual-list-visible-items');
+    if (!root) return [];
+
+    const messages = [];
+    const seen = new Set();
+    const items = Array.from(root.children)
+      .filter(item => item.matches && item.matches('[data-virtual-list-item-key]'))
+      .filter(item => item.getAttribute('data-virtual-list-item-key') !== '-999');
+
+    items.forEach((item) => {
+      const assistantContent = item.querySelector('.ds-assistant-message-main-content');
+      let role = '';
+      let content = null;
+      let thought = '';
+
+      if (assistantContent) {
+        role = 'assistant';
+        content = assistantContent;
+        const thoughtNode = Array.from(item.querySelectorAll('span, div')).find((node) => {
+          const value = textOf(node);
+          return value.length > 0 && value.length < 80 && /^(Thought for\b|Thought completed\b)/i.test(value);
+        });
+        thought = textOf(thoughtNode);
+      } else {
+        const userMessage = item.querySelector('.ds-message');
+        if (!userMessage) return;
+        role = 'user';
+        content = Array.from(userMessage.children).find((child) => {
+          const value = textOf(child);
+          return value && !child.matches?.('.ds-flex, [role="button"], button');
+        }) || userMessage;
+      }
+
+      const message = makeMessage(role, content, { thought });
+      const key = `${role}:${dedupeTextKey(message.text)}`;
+      if (!message.text || providerNoise(message.text, 'deepseek') || seen.has(key)) return;
+      seen.add(key);
+      messages.push(message);
+    });
+
+    return messages;
+  }
+
+  function parseQwenHTML(htmlText, sourceUrl = '') {
+    const doc = parseDocument(htmlText);
+    const exactMessages = collectQwenShareMessages(doc);
+    const messages = exactMessages.length
+      ? exactMessages
+      : mergeProviderMessages(
+        collectProviderDOMMessages(doc, 'qwen'),
+        collectProviderScriptMessages(doc, htmlText, 'qwen')
+      );
+    const title = [
+      textOf(doc.querySelector('.share-layout-title')),
+      getMeta(doc, 'meta[property="og:title"]'),
+      getMeta(doc, 'meta[name="twitter:title"]'),
+      textOf(doc.querySelector('h1')),
+      stripCommonTitleNoise(doc.title)
+    ].find(value => value && !/^(qwen|qwen studio)$/i.test(value.trim())) || '';
+
+    return finalizeConversation({
+      provider: 'qwen',
+      title,
+      date: textOf(doc.querySelector('.share-layout-date')) || textOf(doc.querySelector('time, [class*="date"], [class*="time"]')),
+      url: sourceUrl || getMeta(doc, 'link[rel="canonical"]', 'href'),
+      messages
+    });
+  }
+
+  function parseDeepSeekHTML(htmlText, sourceUrl = '') {
+    const doc = parseDocument(htmlText);
+    const exactMessages = collectDeepSeekShareMessages(doc);
+    const messages = exactMessages.length
+      ? exactMessages
+      : mergeProviderMessages(
+        collectProviderDOMMessages(doc, 'deepseek'),
+        collectProviderScriptMessages(doc, htmlText, 'deepseek')
+      );
+    const title = [
+      getMeta(doc, 'meta[property="og:title"]'),
+      getMeta(doc, 'meta[name="twitter:title"]'),
+      textOf(doc.querySelector('h1')),
+      stripCommonTitleNoise(doc.title)
+    ].find(value => value && !/^(deepseek|shared conversation - deepseek|deepseek\s*-\s*into the unknown)$/i.test(value.trim())) || '';
+
+    return finalizeConversation({
+      provider: 'deepseek',
+      title,
+      date: textOf(doc.querySelector('time, [class*="date"], [class*="time"]')),
+      url: sourceUrl || getMeta(doc, 'link[rel="canonical"]', 'href') || getMeta(doc, 'meta[property="og:url"]'),
+      messages
+    });
+  }
+
   function parseAIConversationHTML(htmlText, sourceUrl = '') {
     const provider = detectProvider(htmlText, sourceUrl);
     switch (provider) {
+      case 'qwen': return parseQwenHTML(htmlText, sourceUrl);
+      case 'deepseek': return parseDeepSeekHTML(htmlText, sourceUrl);
       case 'chatgpt': return parseChatGPTHTML(htmlText, sourceUrl);
       case 'gemini': return parseGeminiHTML(htmlText, sourceUrl);
       case 'grok': return parseGrokHTML(htmlText, sourceUrl);
@@ -689,6 +1065,8 @@
     parseChatGPTHTML,
     parseGeminiHTML,
     parseGrokHTML,
+    parseQwenHTML,
+    parseDeepSeekHTML,
     renderPDFTemplate,
     renderPDFStyles,
     renderStandalonePDFPage,
@@ -699,4 +1077,6 @@
   window.parseChatGPTHTML = parseChatGPTHTML;
   window.parseGeminiHTML = parseGeminiHTML;
   window.parseGrokHTML = parseGrokHTML;
+  window.parseQwenHTML = parseQwenHTML;
+  window.parseDeepSeekHTML = parseDeepSeekHTML;
 })();
