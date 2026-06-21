@@ -1409,13 +1409,9 @@
           return 'Use the full Gemini share link: https://gemini.google.com/share/...';
         }
 
-        const allowedHosts = ['claude.ai', 'chatgpt.com', 'gemini.google.com', 'grok.com', 'chat.qwen.ai', 'chat.deepseek.com'];
-        const standardSharePath = /^\/share\/[a-z0-9_-]+\/?$/i.test(pathname);
-        const qwenSharePath = /^\/s\/[a-z0-9_-]+\/?$/i.test(pathname);
-        const validPath = hostname === 'chat.qwen.ai' ? qwenSharePath : standardSharePath;
-
-        if (parsed.protocol !== 'https:' || !allowedHosts.includes(hostname) || !validPath) {
-          return 'Use a supported public share link. Qwen links use https://chat.qwen.ai/s/... and DeepSeek links use https://chat.deepseek.com/share/...';
+        const allowedHosts = ['claude.ai', 'chatgpt.com', 'gemini.google.com', 'grok.com'];
+        if (parsed.protocol !== 'https:' || !allowedHosts.includes(hostname) || !pathname.includes('/share/')) {
+          return 'Use a public /share/ link from Claude, ChatGPT, Gemini or Grok.';
         }
 
         return '';

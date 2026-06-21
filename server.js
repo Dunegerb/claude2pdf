@@ -196,140 +196,6 @@ async function collectQwenHTML(page, url) {
     }, url);
 }
 
-async function collectDeepSeekHTML(page, url) {
-    return await page.evaluate(async (sourceUrl) => {
-        const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-        const items = new Map();
-
-        function getRoot() {
-            return document.querySelector('.ds-virtual-list-visible-items');
-        }
-
-        function getScrollTarget(root) {
-            const candidates = [];
-            let current = root;
-            while (current) {
-                const delta = (current.scrollHeight || 0) - (current.clientHeight || 0);
-                const style = window.getComputedStyle ? window.getComputedStyle(current) : null;
-                const overflowY = style ? style.overflowY : '';
-                if (delta > 20 && /(auto|scroll|overlay)/i.test(overflowY)) candidates.push({ el: current, delta });
-                current = current.parentElement;
-            }
-            [document.scrollingElement, document.documentElement, document.body].filter(Boolean).forEach((el) => {
-                candidates.push({ el, delta: (el.scrollHeight || 0) - (el.clientHeight || 0) });
-            });
-            return candidates.sort((a, b) => b.delta - a.delta)[0]?.el || document.scrollingElement || document.documentElement;
-        }
-
-        function cleanClone(node) {
-            const clone = node.cloneNode(true);
-            clone.querySelectorAll([
-                'script', 'style', 'noscript', 'template', 'button', 'input', 'textarea', 'select',
-                'iframe', 'canvas', 'audio', 'video', 'svg', '[role="button"]',
-                '.ds-think-content', '.ds-button', '.dbe8cf4a'
-            ].join(',')).forEach((element) => element.remove());
-            return clone;
-        }
-
-        function capture() {
-            const root = getRoot();
-            if (!root) return;
-
-            const nodes = Array.from(root.querySelectorAll('[data-virtual-list-item-key]'));
-            nodes.forEach((node, index) => {
-                const key = node.getAttribute('data-virtual-list-item-key');
-                if (!key || key === '-999') return;
-
-                const assistantContent = node.querySelector('.ds-assistant-message-main-content');
-                const userMessage = node.querySelector('.ds-message');
-                if (!assistantContent && !userMessage) return;
-
-                const textSource = assistantContent || userMessage;
-                const text = (textSource.textContent || '').replace(/\s+/g, ' ').trim();
-                if (!text) return;
-
-                const stableKey = key || `${index}:${text.slice(0, 160)}`;
-                if (!items.has(stableKey)) items.set(stableKey, cleanClone(node).outerHTML);
-            });
-        }
-
-        // DeepSeek mounts the virtual-list shell before hydrating the actual
-        // conversation turns. Wait for a real item instead of treating the
-        // disclaimer item (-999) as conversation content.
-        let initialRoot = getRoot();
-        for (let attempt = 0; attempt < 50; attempt += 1) {
-            const realMessage = initialRoot?.querySelector(
-                '[data-virtual-list-item-key]:not([data-virtual-list-item-key="-999"]) .ds-message'
-            );
-            if (realMessage) break;
-            await sleep(160);
-            initialRoot = getRoot();
-        }
-        if (!initialRoot) return '';
-        const target = getScrollTarget(initialRoot);
-        const setTop = (value) => {
-            try {
-                if (target === document.body || target === document.documentElement || target === document.scrollingElement) {
-                    window.scrollTo(0, value);
-                } else {
-                    target.scrollTop = value;
-                    target.dispatchEvent(new Event('scroll', { bubbles: true }));
-                }
-            } catch (_) {
-                window.scrollTo(0, value);
-            }
-        };
-        const currentTop = () => target.scrollTop || window.scrollY || 0;
-        const currentMax = () => Math.max(0, (target.scrollHeight || document.documentElement.scrollHeight || 0) - (target.clientHeight || window.innerHeight || 0));
-
-        setTop(0);
-        await sleep(350);
-        capture();
-
-        let stagnant = 0;
-        for (let step = 0; step < 64; step += 1) {
-            const beforeTop = currentTop();
-            const beforeCount = items.size;
-            const maxTop = currentMax();
-            const increment = Math.max(520, Math.floor((target.clientHeight || window.innerHeight || 800) * 0.82));
-            setTop(Math.min(maxTop, beforeTop + increment));
-            await sleep(120);
-            capture();
-
-            const afterTop = currentTop();
-            const atBottom = afterTop >= currentMax() - 8 || afterTop === beforeTop;
-            const noNewItems = items.size === beforeCount;
-            stagnant = (atBottom && noNewItems) ? stagnant + 1 : 0;
-            if (stagnant >= 2) break;
-        }
-
-        capture();
-        setTop(0);
-
-        const ordered = Array.from(items.entries()).sort(([a], [b]) => {
-            const numberA = Number(a);
-            const numberB = Number(b);
-            if (Number.isFinite(numberA) && Number.isFinite(numberB)) return numberA - numberB;
-            return String(a).localeCompare(String(b));
-        }).map(([, html]) => html).join('\n');
-
-        // An empty virtual-list shell is not a successful extraction. Returning
-        // an empty string lets the route fall back to the complete page HTML.
-        if (!ordered) return '';
-
-        const title = document.title || '';
-        const canonical = document.querySelector('link[rel="canonical"]')?.getAttribute('href') ||
-            document.querySelector('meta[property="og:url"]')?.getAttribute('content') || sourceUrl || '';
-        const ogTitle = document.querySelector('meta[property="og:title"]')?.getAttribute('content') || '';
-        const escapeAttr = (value) => String(value || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
-
-        return `<!doctype html><html lang="${escapeAttr(document.documentElement.lang || 'en')}"><head>` +
-            `<title>${escapeAttr(title)}</title>` +
-            `<link rel="canonical" href="${escapeAttr(canonical)}">` +
-            `<meta property="og:title" content="${escapeAttr(ogTitle)}">` +
-            `</head><body><div class="ds-virtual-list-visible-items">${ordered}</div></body></html>`;
-    }, url);
-}
 
 // ==========================================
 // ROTA DE EXTRAÇÃO (API)
@@ -342,8 +208,7 @@ app.post('/api/extract', limiter, async (req, res) => {
         'chatgpt.com',
         'gemini.google.com',
         'grok.com',
-        'chat.qwen.ai',
-        'chat.deepseek.com'
+        'chat.qwen.ai'
     ]);
 
     let parsedUrl;
@@ -365,7 +230,6 @@ app.post('/api/extract', limiter, async (req, res) => {
         : hostname === 'gemini.google.com' ? 'gemini'
         : hostname === 'grok.com' ? 'grok'
         : hostname === 'chat.qwen.ai' ? 'qwen'
-        : hostname === 'chat.deepseek.com' ? 'deepseek'
         : 'unknown';
 
     const hasStandardSharePath = /^\/share\/[A-Za-z0-9_-]+\/?$/i.test(pathname);
@@ -381,7 +245,7 @@ app.post('/api/extract', limiter, async (req, res) => {
         !isSupportedPath
     ) {
         return res.status(400).json({
-            error: "Use a supported public share link. Qwen links must use https://chat.qwen.ai/s/... and DeepSeek links must use https://chat.deepseek.com/share/..."
+            error: "Use a supported public share link. Qwen links must use https://chat.qwen.ai/s/..."
         });
     }
 
@@ -424,15 +288,8 @@ app.post('/api/extract', limiter, async (req, res) => {
             Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         });
 
-        // DeepSeek é uma SPA pesada: precisa de networkidle0 para hidratar.
-        // Outros providers carregam mais rápido com domcontentloaded.
-        const waitStrategy = provider === 'deepseek' ? 'networkidle0' : 'domcontentloaded';
-        await page.goto(url, { waitUntil: waitStrategy, timeout: 45000 });
-
-        // DeepSeek precisa de tempo extra para o React montar a virtual list
-        if (provider === 'deepseek') {
-            await new Promise(resolve => setTimeout(resolve, 3000));
-        }
+        // Qwen e outros providers carregam mais rápido com domcontentloaded.
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
         // Aguarda conteúdo REAL do chat. Não usamos `main` aqui porque, no Claude,
         // ele aparece antes das respostas da IA serem hidratadas.
@@ -442,8 +299,7 @@ app.post('/api/extract', limiter, async (req, res) => {
             chatgpt: '[data-message-author-role], section[data-turn], [data-testid^="conversation-turn-"]',
             gemini: 'share-turn-viewer, .share-turn-viewer, .query-text, .markdown-main-panel',
             grok: '[data-testid="user-message"], [data-testid="assistant-message"]',
-            qwen: '.share-layout-messages .qwen-chat-message',
-            deepseek: '.ds-virtual-list-visible-items [data-virtual-list-item-key]:not([data-virtual-list-item-key="-999"]) .ds-message'
+            qwen: '.share-layout-messages .qwen-chat-message'
         };
 
         try {
@@ -469,17 +325,7 @@ app.post('/api/extract', limiter, async (req, res) => {
                 if (!/share-layout-messages|qwen-chat-message/i.test(html)) {
                     html = await page.content();
                 }
-            } else if (provider === 'deepseek') {
-                html = await collectDeepSeekHTML(page, url);
-                const hasDeepSeekMessages = /data-virtual-list-item-key=["'](?!-999["'])[^"']+["']/i.test(html || '') &&
-                    /ds-message|ds-assistant-message-main-content/i.test(html || '');
-                if (!hasDeepSeekMessages) {
-                    console.log(`[-] DeepSeek collector retornou vazio. Tentando page.content()...`);
-                    html = await page.content();
-                    const hasCfChallenge = /cf-turnstile|cf-overlay|challenges\.cloudflare/i.test(html || '');
-                    const hasVirtualList = /ds-virtual-list-visible-items/i.test(html || '');
-                    console.log(`[-] DeepSeek fallback: cloudflare=${hasCfChallenge}, virtualList=${hasVirtualList}, htmlLen=${(html||'').length}`);
-                }
+
             } else {
                 await page.evaluate(async () => {
                     await new Promise((resolve) => {
