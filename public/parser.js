@@ -894,8 +894,7 @@
 
     const messages = [];
     const seen = new Set();
-    const items = Array.from(root.children)
-      .filter(item => item.matches && item.matches('[data-virtual-list-item-key]'))
+    const items = Array.from(root.querySelectorAll('[data-virtual-list-item-key]'))
       .filter(item => item.getAttribute('data-virtual-list-item-key') !== '-999');
 
     items.forEach((item) => {
@@ -918,7 +917,8 @@
         role = 'user';
         content = Array.from(userMessage.children).find((child) => {
           const value = textOf(child);
-          return value && !child.matches?.('.ds-flex, [role="button"], button');
+          return value && !child.matches?.('.ds-flex, [role="button"], button') &&
+            !child.querySelector?.('.ds-assistant-message-main-content');
         }) || userMessage;
       }
 

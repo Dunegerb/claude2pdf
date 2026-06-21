@@ -234,17 +234,37 @@ async function collectDeepSeekHTML(page, url) {
         function capture() {
             const root = getRoot();
             if (!root) return;
-            Array.from(root.children).forEach((node, index) => {
+
+            const nodes = Array.from(root.querySelectorAll('[data-virtual-list-item-key]'));
+            nodes.forEach((node, index) => {
                 const key = node.getAttribute('data-virtual-list-item-key');
                 if (!key || key === '-999') return;
-                const text = (node.textContent || '').replace(/\s+/g, ' ').trim();
+
+                const assistantContent = node.querySelector('.ds-assistant-message-main-content');
+                const userMessage = node.querySelector('.ds-message');
+                if (!assistantContent && !userMessage) return;
+
+                const textSource = assistantContent || userMessage;
+                const text = (textSource.textContent || '').replace(/\s+/g, ' ').trim();
                 if (!text) return;
+
                 const stableKey = key || `${index}:${text.slice(0, 160)}`;
                 if (!items.has(stableKey)) items.set(stableKey, cleanClone(node).outerHTML);
             });
         }
 
-        const initialRoot = getRoot();
+        // DeepSeek mounts the virtual-list shell before hydrating the actual
+        // conversation turns. Wait for a real item instead of treating the
+        // disclaimer item (-999) as conversation content.
+        let initialRoot = getRoot();
+        for (let attempt = 0; attempt < 50; attempt += 1) {
+            const realMessage = initialRoot?.querySelector(
+                '[data-virtual-list-item-key]:not([data-virtual-list-item-key="-999"]) .ds-message'
+            );
+            if (realMessage) break;
+            await sleep(160);
+            initialRoot = getRoot();
+        }
         if (!initialRoot) return '';
         const target = getScrollTarget(initialRoot);
         const setTop = (value) => {
@@ -292,6 +312,10 @@ async function collectDeepSeekHTML(page, url) {
             if (Number.isFinite(numberA) && Number.isFinite(numberB)) return numberA - numberB;
             return String(a).localeCompare(String(b));
         }).map(([, html]) => html).join('\n');
+
+        // An empty virtual-list shell is not a successful extraction. Returning
+        // an empty string lets the route fall back to the complete page HTML.
+        if (!ordered) return '';
 
         const title = document.title || '';
         const canonical = document.querySelector('link[rel="canonical"]')?.getAttribute('href') ||
@@ -406,7 +430,7 @@ app.post('/api/extract', limiter, async (req, res) => {
             gemini: 'share-turn-viewer, .share-turn-viewer, .query-text, .markdown-main-panel',
             grok: '[data-testid="user-message"], [data-testid="assistant-message"]',
             qwen: '.share-layout-messages .qwen-chat-message',
-            deepseek: '.ds-virtual-list-visible-items [data-virtual-list-item-key]'
+            deepseek: '.ds-virtual-list-visible-items [data-virtual-list-item-key]:not([data-virtual-list-item-key="-999"]) .ds-message'
         };
 
         try {
@@ -434,7 +458,9 @@ app.post('/api/extract', limiter, async (req, res) => {
                 }
             } else if (provider === 'deepseek') {
                 html = await collectDeepSeekHTML(page, url);
-                if (!/ds-virtual-list-visible-items|data-virtual-list-item-key/i.test(html)) {
+                const hasDeepSeekMessages = /data-virtual-list-item-key=["'](?!-999["'])[^"']+["']/i.test(html || '') &&
+                    /ds-message|ds-assistant-message-main-content/i.test(html || '');
+                if (!hasDeepSeekMessages) {
                     html = await page.content();
                 }
             } else {
