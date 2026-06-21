@@ -1,59 +1,131 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>How Claude2PDF Works | AI Chat Link to Searchable PDF</title>
-  <meta name="description" content="See exactly how Claude2PDF converts public Claude, ChatGPT, Gemini and Grok share links into searchable PDFs, including what runs on the server and in your browser." />
+  <meta name="description"
+    content="See exactly how Claude2PDF converts public Claude, ChatGPT, Gemini and Grok share links into searchable PDFs, including what runs on the server and in your browser." />
   <link rel="canonical" href="https://claude2pdf.up.railway.app/how-it-works" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <meta property="og:type" content="website" /><meta property="og:title" content="How Claude2PDF Works" /><meta property="og:description" content="A transparent look at public-link extraction, browser-side parsing, preview and PDF export." /><meta property="og:url" content="https://claude2pdf.up.railway.app/how-it-works" />
-  <meta name="twitter:card" content="summary" /><meta name="twitter:title" content="How Claude2PDF Works" /><meta name="twitter:description" content="A transparent look at public-link extraction, browser-side parsing, preview and PDF export." />
-  <link rel="preconnect" href="https://fonts.googleapis.com" /><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin /><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="How Claude2PDF Works" />
+  <meta property="og:description"
+    content="A transparent look at public-link extraction, browser-side parsing, preview and PDF export." />
+  <meta property="og:url" content="https://claude2pdf.up.railway.app/how-it-works" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="How Claude2PDF Works" />
+  <meta name="twitter:description"
+    content="A transparent look at public-link extraction, browser-side parsing, preview and PDF export." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600&display=swap"
+    rel="stylesheet" />
   <link rel="stylesheet" href="/site-pages.css" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"HowTo","name":"How to convert a public AI chat share link to PDF with Claude2PDF","description":"Convert a public Claude, ChatGPT, Gemini or Grok share link into a clean searchable PDF.","step":[{"@type":"HowToStep","name":"Paste a public share link","text":"Paste a public /share/ link from Claude, ChatGPT, Gemini or Grok."},{"@type":"HowToStep","name":"Extract the public page","text":"Claude2PDF's server opens the public page temporarily and returns the rendered conversation HTML."},{"@type":"HowToStep","name":"Parse and preview in the browser","text":"The browser normalizes the messages and builds the document preview."},{"@type":"HowToStep","name":"Export the PDF","text":"Your browser prints the HTML document as a searchable PDF."}]}</script>
+  <script
+    type="application/ld+json">{"@context":"https://schema.org","@type":"HowTo","name":"How to convert a public AI chat share link to PDF with Claude2PDF","description":"Convert a public Claude, ChatGPT, Gemini or Grok share link into a clean searchable PDF.","step":[{"@type":"HowToStep","name":"Paste a public share link","text":"Paste a public /share/ link from Claude, ChatGPT, Gemini or Grok."},{"@type":"HowToStep","name":"Extract the public page","text":"Claude2PDF's server opens the public page temporarily and returns the rendered conversation HTML."},{"@type":"HowToStep","name":"Parse and preview in the browser","text":"The browser normalizes the messages and builds the document preview."},{"@type":"HowToStep","name":"Export the PDF","text":"Your browser prints the HTML document as a searchable PDF."}]}</script>
 </head>
+
 <body>
   <%- include('partials/site-header', { current: 'how-it-works' }) %>
-  <main class="page-main">
-    <section class="page-hero site-shell">
-      <span class="eyebrow">Transparent by design</span>
-      <h1 class="page-title">From public AI chat link to searchable PDF.</h1>
-      <p class="page-lede">Claude2PDF uses a small server-assisted extraction step, then performs parsing, preview and PDF export in your browser. Here is the exact path your conversation takes.</p>
-      <div class="truth-strip" aria-label="Processing summary"><span class="truth-chip">Server-assisted public-page extraction</span><span class="truth-chip">Browser-side document parsing</span><span class="truth-chip">Browser-side PDF export</span></div>
-    </section>
+    <main class="page-main">
+      <section class="page-hero site-shell">
+        <span class="eyebrow">Transparent by design</span>
+        <h1 class="page-title">From public AI chat link to searchable PDF.</h1>
+        <p class="page-lede">Claude2PDF uses a small server-assisted extraction step, then performs parsing, preview and
+          PDF export in your browser. Here is the exact path your conversation takes.</p>
+        <div class="truth-strip" aria-label="Processing summary"><span class="truth-chip">Server-assisted public-page
+            extraction</span><span class="truth-chip">Browser-side document parsing</span><span
+            class="truth-chip">Browser-side PDF export</span></div>
+      </section>
 
-    <section class="section site-shell">
-      <div class="section-head"><p class="section-kicker">The flow</p><h2 class="section-title">Four clear steps, no account required.</h2><p class="section-copy">The product is designed around public share links. It does not sign into your AI accounts or attempt to access private conversations.</p></div>
-      <div class="card-grid">
-        <article class="info-card"><span class="card-index">01</span><h2>Paste a public link</h2><p>Use a public share URL from Claude, ChatGPT, Gemini, Grok or Qwen. Shortened Gemini links must be expanded to the full <code>gemini.google.com/share/...</code> address.</p></article>
-        <article class="info-card"><span class="card-index">02</span><h2>Fetch the public page</h2><p>Your browser sends the URL to <code>/api/extract</code>. The server opens that already-public page with a headless browser and returns the rendered HTML needed for conversion.</p></article>
-        <article class="info-card"><span class="card-index">03</span><h2>Normalize the conversation</h2><p>In your browser, provider-specific parsers identify user and assistant turns, remove interface noise and build one consistent conversation model.</p></article>
-        <article class="info-card"><span class="card-index">04</span><h2>Preview and export</h2><p>The document template is rendered locally in the browser. Download PDF uses the browser's print engine, producing selectable and searchable text.</p></article>
-      </div>
-    </section>
-
-    <section class="section section--soft">
-      <div class="site-shell">
-        <div class="section-head"><p class="section-kicker">Architecture</p><h2 class="section-title">What touches the server—and what does not.</h2></div>
-        <div class="process-diagram" aria-label="Claude2PDF processing architecture">
-          <div class="process-node"><span class="card-index">1</span><strong>Your browser</strong><span>Sends only the public share URL to the extraction endpoint.</span></div>
-          <div class="process-node"><span class="card-index">2</span><strong>Extraction server</strong><span>Temporarily loads the public page. ChatGPT may require collecting virtualized turns while scrolling.</span></div>
-          <div class="process-node"><span class="card-index">3</span><strong>Browser parser</strong><span>Receives page HTML, cleans it and keeps the normalized conversation in session storage for the current browser session.</span></div>
-          <div class="process-node"><span class="card-index">4</span><strong>Browser export</strong><span>Builds the preview and invokes the browser print dialog. Claude2PDF does not upload a finished PDF.</span></div>
+      <section class="section site-shell">
+        <div class="section-head">
+          <p class="section-kicker">The flow</p>
+          <h2 class="section-title">Four clear steps, no account required.</h2>
+          <p class="section-copy">The product is designed around public share links. It does not sign into your AI
+            accounts or attempt to access private conversations.</p>
         </div>
-      </div>
-    </section>
+        <div class="card-grid">
+          <article class="info-card"><span class="card-index">01</span>
+            <h2>Paste a public link</h2>
+            <p>Use a public <code>/share/</code> URL from Claude, ChatGPT, Gemini or Grok. Shortened Gemini links must
+              be expanded to the full <code>gemini.google.com/share/...</code> address.</p>
+          </article>
+          <article class="info-card"><span class="card-index">02</span>
+            <h2>Fetch the public page</h2>
+            <p>Your browser sends the URL to <code>/api/extract</code>. The server opens that already-public page with a
+              headless browser and returns the rendered HTML needed for conversion.</p>
+          </article>
+          <article class="info-card"><span class="card-index">03</span>
+            <h2>Normalize the conversation</h2>
+            <p>In your browser, provider-specific parsers identify user and assistant turns, remove interface noise and
+              build one consistent conversation model.</p>
+          </article>
+          <article class="info-card"><span class="card-index">04</span>
+            <h2>Preview and export</h2>
+            <p>The document template is rendered locally in the browser. Download PDF uses the browser's print engine,
+              producing selectable and searchable text.</p>
+          </article>
+        </div>
+      </section>
 
-    <section class="section site-shell">
-      <div class="card-grid card-grid--two">
-        <article class="info-card"><div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3 5 6v5c0 4.8 2.9 8.2 7 10 4.1-1.8 7-5.2 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg></div><h2>Conversation storage</h2><p>The application code does not intentionally save conversation content to a database. The extracted conversation is placed in browser <code>sessionStorage</code> so the loading and preview pages can share it, and is cleared when you start another conversion or when the browser session ends.</p></article>
-        <article class="info-card"><div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h16v14H4z"/><path d="M8 9h8M8 13h5"/></svg></div><h2>Known limits</h2><p>Only public share pages are supported. Provider markup can change, very large chats can take longer, and some interactive attachments, media or provider-only widgets may not appear in the PDF.</p></article>
-      </div>
-    </section>
+      <section class="section section--soft">
+        <div class="site-shell">
+          <div class="section-head">
+            <p class="section-kicker">Architecture</p>
+            <h2 class="section-title">What touches the server—and what does not.</h2>
+          </div>
+          <div class="process-diagram" aria-label="Claude2PDF processing architecture">
+            <div class="process-node"><span class="card-index">1</span><strong>Your browser</strong><span>Sends only the
+                public share URL to the extraction endpoint.</span></div>
+            <div class="process-node"><span class="card-index">2</span><strong>Extraction
+                server</strong><span>Temporarily loads the public page. ChatGPT may require collecting virtualized turns
+                while scrolling.</span></div>
+            <div class="process-node"><span class="card-index">3</span><strong>Browser parser</strong><span>Receives
+                page HTML, cleans it and keeps the normalized conversation in session storage for the current browser
+                session.</span></div>
+            <div class="process-node"><span class="card-index">4</span><strong>Browser export</strong><span>Builds the
+                preview and invokes the browser print dialog. Claude2PDF does not upload a finished PDF.</span></div>
+          </div>
+        </div>
+      </section>
 
-    <section class="section site-shell"><div class="callout"><div><h2>Ready to convert a public AI conversation?</h2><p>Paste the share link on the home page. No account is required.</p></div><a class="button-secondary" href="/">Open converter</a></div></section>
-  </main>
-  <%- include('partials/site-footer') %>
+      <section class="section site-shell">
+        <div class="card-grid card-grid--two">
+          <article class="info-card">
+            <div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="M12 3 5 6v5c0 4.8 2.9 8.2 7 10 4.1-1.8 7-5.2 7-10V6l-7-3Z" />
+                <path d="m9 12 2 2 4-4" />
+              </svg></div>
+            <h2>Conversation storage</h2>
+            <p>The application code does not intentionally save conversation content to a database. The extracted
+              conversation is placed in browser <code>sessionStorage</code> so the loading and preview pages can share
+              it, and is cleared when you start another conversion or when the browser session ends.</p>
+          </article>
+          <article class="info-card">
+            <div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="M4 5h16v14H4z" />
+                <path d="M8 9h8M8 13h5" />
+              </svg></div>
+            <h2>Known limits</h2>
+            <p>Only public share pages are supported. Provider markup can change, very large chats can take longer, and
+              some interactive attachments, media or provider-only widgets may not appear in the PDF.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section site-shell">
+        <div class="callout">
+          <div>
+            <h2>Ready to convert a public AI conversation?</h2>
+            <p>Paste the share link on the home page. No account is required.</p>
+          </div><a class="button-secondary" href="/">Open converter</a>
+        </div>
+      </section>
+    </main>
+    <%- include('partials/site-footer') %>
 </body>
+
 </html>
