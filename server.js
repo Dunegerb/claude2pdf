@@ -394,7 +394,8 @@ app.post('/api/extract', limiter, async (req, res) => {
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
-                '--disable-blink-features=AutomationControlled'
+                '--disable-blink-features=AutomationControlled',
+                '--disable-features=IsolateOrigins,site-per-process'
             ]
         });
 
@@ -416,10 +417,22 @@ app.post('/api/extract', limiter, async (req, res) => {
             }
         });
 
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36');
 
-        // Acessa a página
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        // Remove navigator.webdriver flag que o Cloudflare detecta
+        await page.evaluateOnNewDocument(() => {
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+        });
+
+        // DeepSeek é uma SPA pesada: precisa de networkidle0 para hidratar.
+        // Outros providers carregam mais rápido com domcontentloaded.
+        const waitStrategy = provider === 'deepseek' ? 'networkidle0' : 'domcontentloaded';
+        await page.goto(url, { waitUntil: waitStrategy, timeout: 45000 });
+
+        // DeepSeek precisa de tempo extra para o React montar a virtual list
+        if (provider === 'deepseek') {
+            await new Promise(resolve => setTimeout(resolve, 3000));
+        }
 
         // Aguarda conteúdo REAL do chat. Não usamos `main` aqui porque, no Claude,
         // ele aparece antes das respostas da IA serem hidratadas.
@@ -461,7 +474,11 @@ app.post('/api/extract', limiter, async (req, res) => {
                 const hasDeepSeekMessages = /data-virtual-list-item-key=["'](?!-999["'])[^"']+["']/i.test(html || '') &&
                     /ds-message|ds-assistant-message-main-content/i.test(html || '');
                 if (!hasDeepSeekMessages) {
+                    console.log(`[-] DeepSeek collector retornou vazio. Tentando page.content()...`);
                     html = await page.content();
+                    const hasCfChallenge = /cf-turnstile|cf-overlay|challenges\.cloudflare/i.test(html || '');
+                    const hasVirtualList = /ds-virtual-list-visible-items/i.test(html || '');
+                    console.log(`[-] DeepSeek fallback: cloudflare=${hasCfChallenge}, virtualList=${hasVirtualList}, htmlLen=${(html||'').length}`);
                 }
             } else {
                 await page.evaluate(async () => {
