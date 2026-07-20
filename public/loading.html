@@ -554,7 +554,7 @@ clean(payload) {
           const conversation = window.Claude2PDF.parseAIConversationHTML(data.html, sourceUrl);
           sessionStorage.setItem(keys.conversation, JSON.stringify(conversation));
           sessionStorage.removeItem(keys.error);
-          finishWithRedirect('/preview.html');
+          finishWithRedirect('/support.html');
         } catch (error) {
           sessionStorage.setItem(keys.error, error.message || 'Conversion failed.');
           finishWithRedirect('/');
