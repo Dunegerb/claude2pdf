@@ -8,6 +8,10 @@
   };
 
   const DEFAULT_BRAND = 'made by.: claude2pdf.up.railway.app';
+  const KATEX_VERSION = '0.17.0';
+  const KATEX_CSS_URL = `https://cdn.jsdelivr.net/npm/katex@${KATEX_VERSION}/dist/katex.min.css`;
+  const KATEX_JS_URL = `https://cdn.jsdelivr.net/npm/katex@${KATEX_VERSION}/dist/katex.min.js`;
+  const KATEX_AUTO_RENDER_URL = `https://cdn.jsdelivr.net/npm/katex@${KATEX_VERSION}/dist/contrib/auto-render.min.js`;
 
   function parseDocument(htmlText) {
     return new DOMParser().parseFromString(String(htmlText || ''), 'text/html');
@@ -76,6 +80,121 @@
     return root;
   }
 
+  const MATHML_TAGS = new Set([
+    'math', 'semantics', 'mrow', 'mi', 'mn', 'mo', 'mfrac', 'msqrt', 'mroot',
+    'msup', 'msub', 'msubsup', 'mover', 'munder', 'munderover', 'mmultiscripts',
+    'mprescripts', 'none', 'mtable', 'mtr', 'mtd', 'mtext', 'mspace', 'mstyle',
+    'mpadded', 'mphantom', 'menclose', 'mfenced', 'maction', 'merror', 'mlabeledtr',
+    'maligngroup', 'malignmark', 'ms', 'mstack', 'mlongdiv', 'msgroup', 'msrow',
+    'mscarries', 'mscarry', 'msline'
+  ]);
+
+  const MATHML_ATTRIBUTES = new Set([
+    'xmlns', 'display', 'displaystyle', 'scriptlevel', 'mathvariant', 'mathsize',
+    'mathcolor', 'mathbackground', 'stretchy', 'symmetric', 'fence', 'separator',
+    'form', 'accent', 'accentunder', 'lspace', 'rspace', 'minsize', 'maxsize',
+    'movablelimits', 'largeop', 'linebreak', 'rowalign', 'columnalign',
+    'columnspacing', 'rowspacing', 'columnlines', 'rowlines', 'frame',
+    'framespacing', 'equalrows', 'equalcolumns', 'rowspan', 'columnspan',
+    'width', 'height', 'depth', 'voffset', 'open', 'close', 'separators', 'notation',
+    'linethickness', 'bevelled', 'numalign', 'denomalign', 'subscriptshift',
+    'superscriptshift', 'columnwidth', 'groupalign', 'side', 'minlabelspacing',
+    'edge', 'selection', 'actiontype', 'decimalpoint', 'charalign', 'charspacing',
+    'longdivstyle', 'stackalign', 'position', 'shift'
+  ]);
+
+  function mathDisplayMode(node, mathNode) {
+    const className = String(node?.getAttribute?.('class') || '');
+    const displayValue = String(node?.getAttribute?.('display') || mathNode?.getAttribute?.('display') || '').toLowerCase();
+    return displayValue === 'block' || displayValue === 'true' ||
+      /(?:^|\s)(?:katex-display|MathJax_Display|math-display|display-math)(?:\s|$)/i.test(className) ||
+      (node?.tagName || '').toLowerCase() === 'div';
+  }
+
+  function cleanMathML(mathNode, displayMode) {
+    const clone = mathNode.cloneNode(true);
+    clone.querySelectorAll('annotation, annotation-xml').forEach(node => node.remove());
+    clone.setAttribute('xmlns', 'http://www.w3.org/1998/Math/MathML');
+    clone.setAttribute('display', displayMode ? 'block' : 'inline');
+
+    clone.querySelectorAll('*').forEach((el) => {
+      const tag = el.tagName.toLowerCase();
+      if (!MATHML_TAGS.has(tag)) {
+        el.replaceWith(...Array.from(el.childNodes));
+        return;
+      }
+      Array.from(el.attributes).forEach((attr) => {
+        if (!MATHML_ATTRIBUTES.has(attr.name.toLowerCase())) el.removeAttribute(attr.name);
+      });
+    });
+    Array.from(clone.attributes).forEach((attr) => {
+      if (!MATHML_ATTRIBUTES.has(attr.name.toLowerCase())) clone.removeAttribute(attr.name);
+    });
+    return clone;
+  }
+
+  function extractMathML(node) {
+    if (!node) return null;
+    const tag = (node.tagName || '').toLowerCase();
+    if (tag === 'math') return node;
+    return node.querySelector?.('math') || null;
+  }
+
+  function extractTeX(node) {
+    if (!node) return '';
+    const annotation = node.querySelector?.('annotation[encoding="application/x-tex"], annotation[encoding="application/tex"]');
+    if (annotation?.textContent?.trim()) return annotation.textContent.trim();
+
+    const script = node.querySelector?.('script[type^="math/tex"]');
+    if (script?.textContent?.trim()) return script.textContent.trim();
+
+    for (const name of ['data-latex', 'data-tex', 'data-math', 'data-formula']) {
+      const value = node.getAttribute?.(name);
+      if (value?.trim()) return value.trim();
+    }
+
+    const aria = node.getAttribute?.('aria-label') || '';
+    if (/\\(?:frac|sqrt|begin|sum|int|log|sin|cos|tan|left|right|mathbf|mathrm)|[_^{}]/.test(aria)) {
+      return aria.trim();
+    }
+    return '';
+  }
+
+  function normalizeMathNodes(root) {
+    if (!root?.querySelectorAll) return;
+
+    const selectors = [
+      '.katex-display', '.katex', 'mjx-container', '.MathJax_Display', '.MathJax',
+      'math', '[data-latex]', '[data-tex]', '[data-math]',
+      '.math-display', '.math-inline', '.display-math', '.inline-math'
+    ].join(',');
+
+    const candidates = Array.from(root.querySelectorAll(selectors));
+    candidates.forEach((node) => {
+      if (!root.contains(node) || node.closest('.c2p-math')) return;
+
+      const containingCandidate = node.parentElement?.closest(selectors);
+      if (containingCandidate && containingCandidate !== node && !containingCandidate.closest('.c2p-math')) return;
+
+      const mathNode = extractMathML(node);
+      const tex = extractTeX(node);
+      if (!mathNode && !tex) return;
+
+      const displayMode = mathDisplayMode(node, mathNode);
+      const wrapper = root.ownerDocument.createElement(displayMode ? 'div' : 'span');
+      wrapper.className = `c2p-math ${displayMode ? 'c2p-math-display' : 'c2p-math-inline'}`;
+      wrapper.setAttribute('role', 'math');
+
+      if (mathNode) {
+        wrapper.appendChild(cleanMathML(mathNode, displayMode));
+      } else {
+        wrapper.setAttribute('data-tex', tex);
+        wrapper.textContent = tex;
+      }
+      node.replaceWith(wrapper);
+    });
+  }
+
   function sanitizeFragment(nodeOrHTML, options = {}) {
     const doc = document.implementation.createHTMLDocument('sanitize');
     const wrapper = doc.createElement('div');
@@ -86,10 +205,28 @@
       wrapper.appendChild(nodeOrHTML.cloneNode(true));
     }
 
+    // Preserve the semantic MathML already embedded by KaTeX/MathJax before
+    // removing provider UI noise. This prevents rendered math and hidden TeX
+    // accessibility layers from being flattened into duplicated plain text.
+    normalizeMathNodes(wrapper);
     removeNoise(wrapper);
 
     wrapper.querySelectorAll('*').forEach((el) => {
       const tag = el.tagName.toLowerCase();
+      const insideMath = !!el.closest('.c2p-math');
+      const isMathWrapper = el.classList?.contains('c2p-math');
+
+      if (insideMath && (MATHML_TAGS.has(tag) || isMathWrapper)) {
+        Array.from(el.attributes).forEach((attr) => {
+          const name = attr.name.toLowerCase();
+          if (isMathWrapper) {
+            if (name !== 'class' && name !== 'role' && name !== 'data-tex') el.removeAttribute(attr.name);
+          } else if (!MATHML_ATTRIBUTES.has(name)) {
+            el.removeAttribute(attr.name);
+          }
+        });
+        return;
+      }
 
       if (tag === 'svg' || tag === 'path' || tag === 'img' || tag === 'picture' || tag === 'source') {
         el.remove();
@@ -131,6 +268,7 @@
     });
 
     wrapper.querySelectorAll('span').forEach((span) => {
+      if (span.classList.contains('c2p-math')) return;
       span.replaceWith(...Array.from(span.childNodes));
     });
 
@@ -948,6 +1086,12 @@
     .pdf-template-root .assistant-copy pre { max-width: 100%; overflow-wrap: anywhere; white-space: pre-wrap; background: #f5f5f5; border: 1px solid rgba(0,0,0,.06); border-radius: 12px; padding: 12px; font: 12px/1.45 "SF Mono", SFMono-Regular, Consolas, Menlo, monospace; break-inside: avoid; }
     .pdf-template-root .assistant-copy code { font: 12px/1.35 "SF Mono", SFMono-Regular, Consolas, Menlo, monospace; background: rgba(0,0,0,.05); border-radius: 4px; padding: 1px 4px; }
     .pdf-template-root .assistant-copy pre code { background: transparent; padding: 0; }
+    .pdf-template-root .c2p-math { color: inherit; font-family: "Cambria Math", "STIX Two Math", "STIXGeneral", "Times New Roman", serif; text-rendering: geometricPrecision; }
+    .pdf-template-root .c2p-math-inline { display: inline-flex; max-width: 100%; margin: 0 .08em; vertical-align: -.16em; align-items: baseline; }
+    .pdf-template-root .c2p-math-inline math { display: inline; font-size: 1.02em; }
+    .pdf-template-root .c2p-math-display { display: block; width: 100%; max-width: 100%; margin: 15px auto 16px; overflow-x: auto; overflow-y: hidden; text-align: center; break-inside: avoid; page-break-inside: avoid; }
+    .pdf-template-root .c2p-math-display math { display: block; width: max-content; max-width: 100%; margin: 0 auto; font-size: 1.08em; }
+    .pdf-template-root .bubble .c2p-math-display { margin: 10px auto; }
     .pdf-template-root .assistant-copy table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 12px; break-inside: avoid; }
     .pdf-template-root .assistant-copy th, .pdf-template-root .assistant-copy td { border-bottom: 1px solid rgba(0,0,0,.1); padding: 7px 5px; text-align: left; vertical-align: top; }
     .pdf-template-root .thought { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 14px; color: var(--soft-ink); font: 400 14px/20px var(--sans); }
@@ -962,7 +1106,9 @@
       if (message.role === 'user') {
         const text = message.text || message.html.replace(/<[^>]+>/g, ' ').trim();
         const isSmall = text.length <= 16 && !/[\n\r]/.test(text);
-        return `<div class="message user"><div class="bubble${isSmall ? ' small' : ''}">${escapeHTML(text)}</div></div>`;
+        const richHTML = sanitizeFragment(message.html, { fallbackText: text });
+        const content = /class="c2p-math(?:\s|")/.test(richHTML) ? richHTML : escapeHTML(text);
+        return `<div class="message user"><div class="bubble${isSmall ? ' small' : ''}">${content}</div></div>`;
       }
       const thought = message.thought ? `<div class="thought">${THOUGHT_ICON}<span>${escapeHTML(message.thought)}</span></div>` : '';
       return `<div class="message assistant"><div class="assistant-copy">${thought}${sanitizeFragment(message.html, { fallbackText: message.text })}${ACTIONS}</div></div>`;
@@ -978,8 +1124,48 @@
     return `<style>${PDF_TEMPLATE_CSS}</style>`;
   }
 
+  function renderMath(root = document) {
+    if (!root) return;
+
+    if (window.katex?.render) {
+      root.querySelectorAll('.c2p-math[data-tex]').forEach((element) => {
+        if (element.dataset.mathRendered === 'true') return;
+        const tex = element.getAttribute('data-tex') || element.textContent || '';
+        try {
+          window.katex.render(tex, element, {
+            displayMode: element.classList.contains('c2p-math-display'),
+            throwOnError: false,
+            strict: 'ignore',
+            trust: false,
+            output: 'htmlAndMathml'
+          });
+          element.dataset.mathRendered = 'true';
+        } catch (_) {}
+      });
+    }
+
+    if (typeof window.renderMathInElement === 'function') {
+      try {
+        window.renderMathInElement(root, {
+          delimiters: [
+            { left: '$$', right: '$$', display: true },
+            { left: '\\[', right: '\\]', display: true },
+            { left: '\\(', right: '\\)', display: false }
+          ],
+          ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code', 'option'],
+          ignoredClasses: ['c2p-math', 'katex'],
+          throwOnError: false,
+          strict: 'ignore',
+          trust: false
+        });
+      } catch (_) {}
+    }
+  }
+
   function renderStandalonePDFPage(conversation) {
-    return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHTML(conversation.title || 'AI Conversation')}</title>${renderPDFStyles()}<style>body{margin:0;}</style></head><body>${renderPDFTemplate(conversation)}</body></html>`;
+    const mathAssets = `<link rel="stylesheet" href="${KATEX_CSS_URL}"><script src="${KATEX_JS_URL}"><\/script><script src="${KATEX_AUTO_RENDER_URL}"><\/script><script src="/parser.js"><\/script>`;
+    const mathInit = `<script>window.addEventListener('DOMContentLoaded',function(){if(window.Claude2PDF){window.Claude2PDF.renderMath(document.body);}});<\/script>`;
+    return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHTML(conversation.title || 'AI Conversation')}</title>${mathAssets}${renderPDFStyles()}<style>body{margin:0;}</style></head><body>${renderPDFTemplate(conversation)}${mathInit}</body></html>`;
   }
 
   window.Claude2PDF = {
@@ -994,6 +1180,7 @@
     renderPDFTemplate,
     renderPDFStyles,
     renderStandalonePDFPage,
+    renderMath,
     escapeHTML
   };
 

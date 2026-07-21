@@ -10,6 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.17.0/dist/katex.min.css" integrity="sha384-vlBdW0r3AcZO/HboRPznQNowvexd3fY8qHOWkBi5q7KGgqJ+F48+DceybYmrVbmB" crossorigin="anonymous" />
 
   <style>
     :root {
@@ -1028,6 +1029,8 @@
   </script>
 
   <div id="pdf-export-root" aria-hidden="true"></div>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.17.0/dist/katex.min.js" integrity="sha384-AtrdNsnxl/75rvBneBVH7DtOvCxSVahR2zWqle1coBKd8DEmLoviqNeJSx64gNAs" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.17.0/dist/contrib/auto-render.min.js" integrity="sha384-bjyGPfbij8/NDKJhSGZNP/khQVgtHUE5exjm4Ydllo42FwIgYsdLO2lXGmRBf5Mz" crossorigin="anonymous"></script>
   <script src="/parser.js"></script>
   <script>
     (() => {
@@ -1072,6 +1075,7 @@
       if (thoughtEl) thoughtEl.textContent = firstAssistant.thought || `${(conversation.provider || 'AI').toUpperCase()} response`;
 
       exportRoot.innerHTML = window.Claude2PDF.renderPDFStyles() + window.Claude2PDF.renderPDFTemplate(conversation);
+      window.Claude2PDF.renderMath(exportRoot);
 
       const downloadButton = document.querySelector('.action-switch .pill-primary');
       const fullVersionButton = document.querySelector('.action-switch .pill-secondary');
@@ -1079,6 +1083,7 @@
 
       if (downloadButton) {
         downloadButton.addEventListener('click', () => {
+          window.Claude2PDF.renderMath(exportRoot);
           const previousTitle = document.title;
           document.title = `${(conversation.title || 'AI Conversation').replace(/[^a-z0-9-_ ]/gi, '').trim() || 'AI Conversation'} - Claude2PDF`;
           window.print();
