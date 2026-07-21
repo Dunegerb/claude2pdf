@@ -8,7 +8,12 @@
     "intro": "Native Claude exports often fail to preserve the readability of complex threads. Our online tool is engineered specifically to parse the Claude DOM and reconstruct it into a pristine, editorial-quality PDF document.",
     "useCase": "Best for researchers and developers who need to present AI reasoning steps in a static, professional document format without browser clutter.",
     "ctaText": "Convert Claude Chat to PDF",
-    "relatedSlugs": ["save-claude-as-pdf", "claude-link-to-pdf", "claude-chat-to-pdf", "export-claude-chat-to-pdf"],
+    "relatedSlugs": [
+      "save-claude-as-pdf",
+      "claude-link-to-pdf",
+      "claude-chat-to-pdf",
+      "export-claude-chat-to-pdf"
+    ],
     "noindex": false,
     "sections": [
       {
@@ -48,7 +53,12 @@
     "intro": "Storage in the cloud is temporary. Saving your Claude chats as local PDF files ensures you have a permanent record of the prompts and responses that shaped your project.",
     "useCase": "Essential for maintaining a personal knowledge base of AI-assisted decision-making and troubleshooting logs.",
     "ctaText": "Save Claude as PDF Now",
-    "relatedSlugs": ["claude-to-pdf-online", "claude-link-to-pdf", "save-claude-chat-history", "archive-claude-logs"],
+    "relatedSlugs": [
+      "claude-to-pdf-online",
+      "claude-link-to-pdf",
+      "save-claude-chat-history",
+      "archive-claude-logs"
+    ],
     "noindex": false,
     "faqs": [
       {
@@ -74,7 +84,11 @@
     "intro": "Need to edit your Claude output in a word processor? Instead of messy copy-pasting, export the entire conversation directly into a structured .docx file optimized for editing.",
     "useCase": "Perfect for technical writers and copywriters who need to refine AI-generated drafts in professional editing environments like Microsoft Word or Google Docs.",
     "ctaText": "Export Claude to Word",
-    "relatedSlugs": ["convert-claude-to-markdown", "download-claude-chat-as-document", "save-claude-chat-history"],
+    "relatedSlugs": [
+      "convert-claude-to-markdown",
+      "download-claude-chat-as-document",
+      "save-claude-chat-history"
+    ],
     "noindex": false,
     "faqs": [
       {
@@ -92,7 +106,11 @@
     "intro": "Protect the intellectual property within your AI interactions. Our tool allows you to save your Claude chat history in a format that is easily indexed by local search tools like Spotlight or Windows Search.",
     "useCase": "Ideal for long-term project tracking where you need to reference specific AI outputs from months ago.",
     "ctaText": "Archive Your Claude History",
-    "relatedSlugs": ["archive-claude-logs", "secure-claude-archive-tool", "save-claude-as-pdf"],
+    "relatedSlugs": [
+      "archive-claude-logs",
+      "secure-claude-archive-tool",
+      "save-claude-as-pdf"
+    ],
     "noindex": false,
     "faqs": [
       {
@@ -110,7 +128,11 @@
     "intro": "Turn AI chatter into a tangible document asset. Whether you need a PDF for presentation or a docx for editing, our tool handles the heavy lifting of extraction and reformatting.",
     "useCase": "Great for students and analysts who need to append AI-generated research to their larger reports and submissions.",
     "ctaText": "Download Claude Document",
-    "relatedSlugs": ["export-claude-to-word", "claude-to-pdf-online", "print-claude-conversations"],
+    "relatedSlugs": [
+      "export-claude-to-word",
+      "claude-to-pdf-online",
+      "print-claude-conversations"
+    ],
     "noindex": false,
     "faqs": [
       {
@@ -128,7 +150,11 @@
     "intro": "Standard printing often fails on AI chats. Our tool strips away the web interface and optimizes the text flow specifically for the physical page, ensuring your hard copies look professional.",
     "useCase": "Critical for legal records, classroom handouts, or offline project files where paper documentation is required.",
     "ctaText": "Format Claude for Printing",
-    "relatedSlugs": ["claude-to-pdf-online", "download-claude-chat-as-document", "archive-claude-logs"],
+    "relatedSlugs": [
+      "claude-to-pdf-online",
+      "download-claude-chat-as-document",
+      "archive-claude-logs"
+    ],
     "noindex": false,
     "faqs": [
       {
@@ -146,7 +172,11 @@
     "intro": "Developers and technical writers: Move your Claude insights into your documentation pipeline. Convert conversations into high-quality Markdown while preserving GFM-compliant tables and blocks.",
     "useCase": "Speed up your documentation by turning raw AI chats into structured Markdown files for your Git repos or knowledge bases.",
     "ctaText": "Convert Claude to Markdown",
-    "relatedSlugs": ["export-claude-to-word", "claude-share-link-extractor", "claude-chat-to-pdf"],
+    "relatedSlugs": [
+      "export-claude-to-word",
+      "claude-share-link-extractor",
+      "claude-chat-to-pdf"
+    ],
     "noindex": false,
     "faqs": [
       {
@@ -164,7 +194,11 @@
     "intro": "Sharing links is easy, but archiving them is hard. Our extractor parses public Claude share links and provides a clean, text-only or formatted document version of the entire thread.",
     "useCase": "Used by teams to pull actionable data from shared AI conversations into their internal ticketing or management systems.",
     "ctaText": "Extract Claude Link Now",
-    "relatedSlugs": ["convert-claude-to-markdown", "claude-to-pdf-online", "claude-link-to-pdf"],
+    "relatedSlugs": [
+      "convert-claude-to-markdown",
+      "claude-to-pdf-online",
+      "claude-link-to-pdf"
+    ],
     "noindex": false,
     "sections": [
       {
@@ -192,7 +226,11 @@
     "intro": "Don't trust the cloud with your project's history. Archiving your Claude logs locally protects you against account data loss and provides a searchable record of your AI-assisted growth.",
     "useCase": "Enterprise users and cautious developers who need a redundant backup of their most critical AI brainstorming sessions.",
     "ctaText": "Securely Archive Claude Logs",
-    "relatedSlugs": ["save-claude-chat-history", "secure-claude-archive-tool", "print-claude-conversations"],
+    "relatedSlugs": [
+      "save-claude-chat-history",
+      "secure-claude-archive-tool",
+      "print-claude-conversations"
+    ],
     "noindex": false,
     "faqs": [
       {
@@ -210,7 +248,11 @@
     "intro": "Your AI data is sensitive. We provide a cloud-free path to archiving conversations. By using our offline-first approach, you ensure your private logs remain strictly under your control.",
     "useCase": "Compliance-focused industries like healthcare, finance, or legal where data privacy is the top priority.",
     "ctaText": "Backup Claude Privately",
-    "relatedSlugs": ["archive-claude-logs", "save-claude-chat-history", "save-claude-as-pdf"],
+    "relatedSlugs": [
+      "archive-claude-logs",
+      "save-claude-chat-history",
+      "save-claude-as-pdf"
+    ],
     "noindex": false,
     "faqs": [
       {
@@ -228,7 +270,12 @@
     "intro": "Got a Claude share link you need to preserve? Our converter takes any public claude.ai/share/ URL and transforms it into a clean, editorial-grade PDF — code blocks, formatting, and structure fully intact. No sign-up required.",
     "useCase": "Ideal for teams sharing Claude outputs via links who need a permanent, offline-readable PDF copy for documentation, compliance, or presentations.",
     "ctaText": "Convert Link to PDF Now",
-    "relatedSlugs": ["claude-to-pdf-online", "claude-share-link-extractor", "claude-chat-to-pdf", "export-claude-chat-to-pdf"],
+    "relatedSlugs": [
+      "claude-to-pdf-online",
+      "claude-share-link-extractor",
+      "claude-chat-to-pdf",
+      "export-claude-chat-to-pdf"
+    ],
     "noindex": false,
     "sections": [
       {
@@ -264,7 +311,12 @@
     "intro": "Whether it's a brainstorming session, a coding walkthrough, or a research deep-dive — our converter turns your Claude chats into professional PDF documents that look exactly like the original conversation, optimized for reading and printing.",
     "useCase": "Perfect for developers archiving code-heavy Claude sessions, students saving research conversations, and teams preserving project-critical AI outputs as permanent records.",
     "ctaText": "Convert Chat to PDF",
-    "relatedSlugs": ["claude-to-pdf-online", "claude-link-to-pdf", "export-claude-chat-to-pdf", "save-claude-as-pdf"],
+    "relatedSlugs": [
+      "claude-to-pdf-online",
+      "claude-link-to-pdf",
+      "export-claude-chat-to-pdf",
+      "save-claude-as-pdf"
+    ],
     "noindex": false,
     "sections": [
       {
@@ -294,36 +346,57 @@
   {
     "slug": "export-claude-chat-to-pdf",
     "keyword": "Export Claude chat to PDF",
-    "title": "Export Claude Chat to PDF | One-Click Conversation Export",
-    "description": "Export your Claude AI conversations to PDF with a single click. Professional formatting, full code block support, and zero data collection.",
-    "h1": "Export Claude Conversations to PDF in One Click",
-    "intro": "Exporting Claude chats shouldn't require technical knowledge. Our one-click export tool handles everything — from fetching the conversation data to rendering a publication-ready PDF with proper typography, code highlighting, and page breaks.",
-    "useCase": "Built for professionals who need to attach AI-assisted research, code reviews, or strategic analysis to formal reports and project documentation.",
-    "ctaText": "Export to PDF Now",
-    "relatedSlugs": ["claude-to-pdf-online", "claude-chat-to-pdf", "claude-link-to-pdf", "export-claude-to-word"],
+    "title": "Export Claude Chat to PDF | Download Conversations Free",
+    "description": "Export, download, save, or print a Claude chat as a clean, searchable PDF. Free, private, no account required, with code, math, tables, and formatting preserved.",
+    "h1": "Export Claude Chat to PDF",
+    "intro": "Turn a public Claude share link into a clean, searchable PDF without browser clutter. Claude2PDF preserves the structure of long conversations, including code blocks, supported math formulas, tables, headings, and lists.",
+    "useCase": "Built for developers, researchers, students, and teams in the United States and worldwide who need a permanent, professional copy of a Claude conversation for documentation, review, or offline reference.",
+    "ctaText": "Export Claude Chat to PDF",
+    "relatedSlugs": [
+      "claude-to-pdf-online",
+      "claude-chat-to-pdf",
+      "claude-link-to-pdf",
+      "export-claude-to-word"
+    ],
     "noindex": false,
     "sections": [
       {
-        "title": "Convert Claude Share Link to PDF",
-        "content": "Exporting starts with a share link. Click the share button in your Claude conversation, copy the generated URL, and paste it into our tool. Within seconds, you'll have a polished PDF export of the entire thread — complete with user prompts styled as distinct message blocks and Claude's responses rendered with editorial-quality typography."
+        "title": "How to export a Claude chat to PDF",
+        "content": "Open the conversation in Claude, create a public share link, copy the full claude.ai/share/ URL, and paste it into Claude2PDF. Review the formatted preview, then save the final searchable PDF from your browser."
+      },
+      {
+        "title": "Download or save a Claude conversation",
+        "content": "The same workflow works when you want to download, save, archive, or print a Claude conversation. The result is a portable PDF that is easier to search, share, cite, and keep with project records."
+      },
+      {
+        "title": "Claude2PDF vs. Print to PDF",
+        "content": "Standard browser printing can include navigation, cut long code blocks, and produce awkward page breaks. Claude2PDF rebuilds the public conversation into a document layout designed specifically for readable AI chat exports."
+      },
+      {
+        "title": "Preserve code, math, tables, and formatting",
+        "content": "Claude2PDF keeps headings, paragraphs, bold and italic text, lists, tables, inline code, fenced code blocks, and supported mathematical notation in a structured document instead of flattening the conversation into unformatted text."
       }
     ],
     "faqs": [
       {
-        "q": "Can I convert a Claude share link to PDF?",
-        "a": "Yes — that's the primary workflow. Share your Claude conversation, copy the link, paste it here, and download the PDF. The entire process takes under 30 seconds."
+        "q": "How do I export a Claude chat to PDF?",
+        "a": "Create a public share link in Claude, paste the full URL into Claude2PDF, review the preview, and save the generated PDF. No account is required."
       },
       {
-        "q": "How do I export Claude chat to PDF?",
-        "a": "Step 1: Generate a share link from Claude. Step 2: Paste it into Claude2PDF. Step 3: Preview and download. If the automatic extraction is blocked, use our Failsafe Mode with the page source code."
+        "q": "Can I download a Claude conversation as a PDF?",
+        "a": "Yes. Claude2PDF converts a public Claude share link into a downloadable, searchable PDF designed for offline reading and long-term storage."
       },
       {
-        "q": "Does Claude2PDF preserve formatting?",
-        "a": "Yes. Our PDF engine preserves all Claude formatting: code blocks with proper indentation, markdown headers, numbered and bulleted lists, tables, and inline code spans."
+        "q": "Can I save or print a Claude chat without losing formatting?",
+        "a": "Yes. The document renderer preserves headings, lists, tables, inline code, fenced code blocks, and supported math formulas while removing browser navigation and interface clutter."
       },
       {
-        "q": "Is my data safe during export?",
-        "a": "Yes. The PDF rendering happens entirely in your browser. We don't store, log, or transmit your conversation content. In Failsafe Mode, your data never even reaches our server."
+        "q": "Is Claude2PDF free and private?",
+        "a": "Claude2PDF is free and requires no account. The extraction server temporarily loads the public share page, while parsing, preview, and PDF export happen in your browser. Conversation content is not intentionally persisted."
+      },
+      {
+        "q": "Does it also support ChatGPT, Gemini, Grok, and Qwen?",
+        "a": "Yes. The main converter can detect supported public share links from Claude, ChatGPT, Gemini, Grok, and Qwen automatically."
       }
     ]
   },
@@ -336,7 +409,11 @@
     "intro": "Standard browser printing often cuts off lines of code and math in long ChatGPT threads. Our tool is optimized to parse the ChatGPT DOM structure and output a clean, editorial-quality PDF.",
     "useCase": "Perfect for students, developers, and educators who need to save ChatGPT explanations, coding logs, or lesson plans cleanly.",
     "ctaText": "Convert ChatGPT to PDF",
-    "relatedSlugs": ["save-chatgpt-as-pdf", "convert-chatgpt-to-pdf", "claude-to-pdf-online"],
+    "relatedSlugs": [
+      "save-chatgpt-as-pdf",
+      "convert-chatgpt-to-pdf",
+      "claude-to-pdf-online"
+    ],
     "noindex": false,
     "sections": [
       {
@@ -368,7 +445,11 @@
     "intro": "Protect your knowledge assets. Saving your ChatGPT conversations locally ensures you always have access to key programming steps, outlines, and prompts even if OpenAI logs change.",
     "useCase": "Ideal for researchers and developers keeping a private archive of their AI brainstorming sessions.",
     "ctaText": "Save ChatGPT to PDF Now",
-    "relatedSlugs": ["chatgpt-to-pdf-online", "convert-chatgpt-to-pdf", "save-claude-as-pdf"],
+    "relatedSlugs": [
+      "chatgpt-to-pdf-online",
+      "convert-chatgpt-to-pdf",
+      "save-claude-as-pdf"
+    ],
     "noindex": false,
     "faqs": [
       {
@@ -390,7 +471,11 @@
     "intro": "Banish messy copying and pasting. Directly convert your ChatGPT share links into beautifully structured documents that are optimized for reading and local storage.",
     "useCase": "Excellent for developers compiling code guides or teams sharing key AI project logs.",
     "ctaText": "Convert Chat to PDF",
-    "relatedSlugs": ["chatgpt-to-pdf-online", "save-chatgpt-as-pdf", "claude-chat-to-pdf"],
+    "relatedSlugs": [
+      "chatgpt-to-pdf-online",
+      "save-chatgpt-as-pdf",
+      "claude-chat-to-pdf"
+    ],
     "noindex": false,
     "faqs": [
       {
@@ -408,7 +493,11 @@
     "intro": "Google Gemini share links are easy to read but hard to save. Our online tool extracts the dynamic Gemini content and renders it into a clean, searchable PDF document.",
     "useCase": "Designed for researchers and professional analysts who want to store Gemini answers inside secure local archives.",
     "ctaText": "Convert Gemini to PDF",
-    "relatedSlugs": ["save-gemini-as-pdf", "convert-gemini-to-pdf", "claude-to-pdf-online"],
+    "relatedSlugs": [
+      "save-gemini-as-pdf",
+      "convert-gemini-to-pdf",
+      "claude-to-pdf-online"
+    ],
     "noindex": false,
     "sections": [
       {
@@ -436,7 +525,11 @@
     "intro": "Keep a permanent copy of your AI answers. Saving Google Gemini logs as local PDFs keeps your notes searchable and accessible offline at any time.",
     "useCase": "Great for students compiling class research or writers saving article outlines generated by Gemini.",
     "ctaText": "Save Gemini to PDF Now",
-    "relatedSlugs": ["gemini-to-pdf-online", "convert-gemini-to-pdf", "save-claude-as-pdf"],
+    "relatedSlugs": [
+      "gemini-to-pdf-online",
+      "convert-gemini-to-pdf",
+      "save-claude-as-pdf"
+    ],
     "noindex": false,
     "faqs": [
       {
@@ -454,7 +547,11 @@
     "intro": "Turn Gemini conversations into professional documents in seconds. Our layout strips away web headers and focuses strictly on content readability.",
     "useCase": "Perfect for developers and editors who need to convert programming code and long responses into readable documents.",
     "ctaText": "Convert Gemini to PDF",
-    "relatedSlugs": ["gemini-to-pdf-online", "save-gemini-as-pdf", "claude-chat-to-pdf"],
+    "relatedSlugs": [
+      "gemini-to-pdf-online",
+      "save-gemini-as-pdf",
+      "claude-chat-to-pdf"
+    ],
     "noindex": false,
     "faqs": [
       {
@@ -472,7 +569,11 @@
     "intro": "xAI's Grok conversations can contain vast amounts of structured details. Our online tool converts public Grok share links into pristine, searchable PDFs.",
     "useCase": "Great for power users and developers archiving Grok code outputs, research points, and real-time news analyses.",
     "ctaText": "Convert Grok to PDF",
-    "relatedSlugs": ["save-grok-as-pdf", "convert-grok-to-pdf", "claude-to-pdf-online"],
+    "relatedSlugs": [
+      "save-grok-as-pdf",
+      "convert-grok-to-pdf",
+      "claude-to-pdf-online"
+    ],
     "noindex": false,
     "sections": [
       {
@@ -500,7 +601,11 @@
     "intro": "Never lose your best Grok answers. Save Grok chat history into high-quality local PDFs for permanent indexing.",
     "useCase": "Ideal for researchers tracking current events and developers needing local reference files.",
     "ctaText": "Save Grok to PDF Now",
-    "relatedSlugs": ["grok-to-pdf-online", "convert-grok-to-pdf", "save-claude-as-pdf"],
+    "relatedSlugs": [
+      "grok-to-pdf-online",
+      "convert-grok-to-pdf",
+      "save-claude-as-pdf"
+    ],
     "noindex": false,
     "faqs": [
       {
@@ -518,7 +623,11 @@
     "intro": "Directly turn Grok shared conversation URLs into clean, readable document sheets without standard browser headers.",
     "useCase": "Perfect for anyone sharing Grok search results or coding guides.",
     "ctaText": "Convert Grok to PDF",
-    "relatedSlugs": ["grok-to-pdf-online", "save-grok-as-pdf", "claude-chat-to-pdf"],
+    "relatedSlugs": [
+      "grok-to-pdf-online",
+      "save-grok-as-pdf",
+      "claude-chat-to-pdf"
+    ],
     "noindex": false,
     "faqs": [
       {
