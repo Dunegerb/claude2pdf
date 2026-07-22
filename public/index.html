@@ -8,6 +8,7 @@
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <link rel="canonical" href="https://claude2pdf.up.railway.app/" />
+  <meta name="application-name" content="Claude2PDF" />
   <meta name="description"
     content="Export Claude chats and shared links to clean, searchable PDFs. Free, private, and no account required. Also supports ChatGPT, Gemini, Grok, and Qwen." />
   <meta property="og:type" content="website" />
@@ -48,10 +49,28 @@
     {
       "@context": "https://schema.org",
       "@type": "WebSite",
-      "name": "Claude2PDF",
-      "alternateName": ["Claude to PDF", "Claude2PDF Converter"],
+      "@id": "https://claude2pdf.up.railway.app/#website",
       "url": "https://claude2pdf.up.railway.app/",
+      "name": "Claude2PDF",
+      "alternateName": [
+        "Claude to PDF",
+        "Claude2PDF Converter",
+        "claude2pdf.up.railway.app"
+      ],
       "inLanguage": "en-US"
+    }
+  </script>
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      "@id": "https://claude2pdf.up.railway.app/#organization",
+      "name": "Claude2PDF",
+      "url": "https://claude2pdf.up.railway.app/",
+      "logo": {
+        "@type": "ImageObject",
+        "url": "https://claude2pdf.up.railway.app/apple-touch-icon.png"
+      }
     }
   </script>
   <script type="application/ld+json">
@@ -571,6 +590,7 @@
     <header class="w-full flex items-center justify-between py-5 border-b border-border/40 shrink-0">
       <div class="flex items-center">
         <!-- SVG Logo Limpo - Âncora de Identidade Visual -->
+        <a href="/" aria-label="Claude2PDF home" class="inline-flex items-center text-current no-underline">
         <svg xmlns="http://www.w3.org/2000/svg" width="314" height="237" viewBox="0 0 314 237" fill="none"
           class="h-6 w-auto opacity-90 hover:opacity-100 transition-opacity duration-200" aria-label="Claude2PDF"
           role="img">
@@ -599,6 +619,8 @@
             d="M153.874 149.444C153.566 148.632 152.457 136.64 151.409 122.712C150.423 108.784 148.329 80.8659 146.85 60.5672C145.309 40.331 143.892 20.7818 143.646 17.2217L143.215 10.7262L148.02 6.16676C153.566 0.857883 156.153 -0.641095 158.372 0.233309C160.528 1.04526 169.277 9.03982 169.955 10.7262C170.263 11.663 169.462 26.1531 167.737 50.4491C163.67 106.911 160.651 146.509 160.282 148.82C159.973 150.756 159.85 150.818 157.201 150.818C154.921 150.818 154.367 150.568 153.874 149.444Z"
             fill="#1D1D1F" />
         </svg>
+          <span class="sr-only">Claude2PDF</span>
+        </a>
       </div>
 
       <!-- Botão de Apoio Animado -->
