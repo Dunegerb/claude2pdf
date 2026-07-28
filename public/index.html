@@ -10,14 +10,14 @@
   <link rel="canonical" href="https://claude2pdf.up.railway.app/" />
   <meta name="application-name" content="Claude2PDF" />
   <meta name="description"
-    content="Export Claude chats and shared links to clean, searchable PDFs. Free, private, and no account required. Also supports ChatGPT, Gemini, Grok, and Qwen." />
+    content="Turn any public AI chat link into a PDF. Works with Claude, ChatGPT, Gemini, Grok, and more." />
   <meta property="og:type" content="website" />
   <meta property="og:locale" content="en_US" />
   <meta property="og:site_name" content="Claude2PDF" />
   <meta property="og:url" content="https://claude2pdf.up.railway.app/" />
   <meta property="og:title" content="Claude to PDF Converter | Export AI Chats Free | Claude2PDF" />
   <meta property="og:description"
-    content="Export Claude chats and shared links to clean, searchable PDFs. Free, private, and no account required. Also supports ChatGPT, Gemini, Grok, and Qwen." />
+    content="Turn any public AI chat link into a PDF. Works with Claude, ChatGPT, Gemini, Grok, and more." />
   <meta property="og:image"
     content="https://claude2pdf.up.railway.app/images/public-ai-chat-link-to-searchable-pdf-converter-claude-chatgpt-gemini-grok.webp" />
   <meta property="og:image:alt"
@@ -27,7 +27,7 @@
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="Claude to PDF Converter | Export AI Chats Free | Claude2PDF" />
   <meta name="twitter:description"
-    content="Export Claude chats and shared links to clean, searchable PDFs. Free, private, and no account required. Also supports ChatGPT, Gemini, Grok, and Qwen." />
+    content="Turn any public AI chat link into a PDF. Works with Claude, ChatGPT, Gemini, Grok, and more." />
   <meta name="twitter:image"
     content="https://claude2pdf.up.railway.app/images/public-ai-chat-link-to-searchable-pdf-converter-claude-chatgpt-gemini-grok.webp" />
   <meta name="twitter:image:alt"
@@ -699,8 +699,7 @@
           Claude to PDF Converter
         </h1>
         <p class="text-body max-w-lg mx-auto">
-          Export Claude chats and shared links to clean, searchable PDFs. Free, private, and no account required.
-          Also supports ChatGPT, Gemini, Grok, and Qwen.
+          Turn any public AI chat link into a PDF. Works with Claude, ChatGPT, Gemini, Grok, and more.
         </p>
       </div>
 
@@ -1794,6 +1793,19 @@
         submitConversationLinkOnce();
       });
       inputEl.addEventListener('input', clearInlineError);
+
+      // After pasting a long URL, keep the field visually anchored to its beginning.
+      // The caret remains untouched, so normal keyboard editing still works.
+      inputEl.addEventListener('paste', () => {
+        const revealUrlStart = () => { inputEl.scrollLeft = 0; };
+
+        // Run after the browser inserts the clipboard text and again after layout.
+        window.setTimeout(revealUrlStart, 0);
+        window.requestAnimationFrame(() => {
+          revealUrlStart();
+          window.requestAnimationFrame(revealUrlStart);
+        });
+      });
 
       inputEl.addEventListener('keydown', (event) => {
         if (event.key === 'Enter') {
