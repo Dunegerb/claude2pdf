@@ -1736,12 +1736,19 @@
         const pathname = parsed.pathname;
         const lowerPath = pathname.toLowerCase();
 
-        if (hostname === 'g.co' && lowerPath.startsWith('/gemini/share/')) {
-          return 'Use the full Gemini share link: https://gemini.google.com/share/...';
-        }
-
         if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
           return 'Use an HTTPS public share link.';
+        }
+
+        if (hostname === 'g.co') {
+          return /^\/gemini\/share\/[^/?#]+\/?$/i.test(pathname)
+            ? ''
+            : 'Use a Gemini public link in the format https://g.co/gemini/share/...';
+        }
+        if (hostname === 'share.gemini.google') {
+          return /^\/[^/?#]+\/?$/i.test(pathname)
+            ? ''
+            : 'Use a Gemini public link in the format https://share.gemini.google/...';
         }
 
         const providers = {

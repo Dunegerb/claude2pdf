@@ -323,7 +323,7 @@
   function detectProvider(htmlText, url = '') {
     const urlSource = String(url || '').toLowerCase();
     if (urlSource.includes('chat.qwen.ai')) return 'qwen';
-    if (urlSource.includes('gemini.google.com')) return 'gemini';
+    if (urlSource.includes('gemini.google.com') || urlSource.includes('g.co/gemini/share/') || urlSource.includes('share.gemini.google')) return 'gemini';
     if (urlSource.includes('grok.com')) return 'grok';
     if (urlSource.includes('chatgpt.com')) return 'chatgpt';
     if (urlSource.includes('claude.ai')) return 'claude';
@@ -552,21 +552,113 @@
   }
 
   function mergeProviderMessages(primary, fallback) {
-    const isComplete = (messages) => messages.length >= 2 &&
-      messages.some(message => message.role === 'user') &&
-      messages.some(message => message.role === 'assistant');
+    const clean = (messages) => Array.from(messages || []).filter(message =>
+      message && (message.role === 'user' || message.role === 'assistant') && dedupeTextKey(message.text)
+    );
 
-    if (isComplete(primary)) return primary;
-    if (isComplete(fallback)) return fallback;
+    const first = clean(primary);
+    const second = clean(fallback);
 
-    const merged = [];
-    const seen = new Set();
-    [...primary, ...fallback].forEach((message) => {
-      const key = `${message.role}:${dedupeTextKey(message.text)}`;
-      if (!message.text || seen.has(key)) return;
-      seen.add(key);
-      merged.push(message);
+    const stats = (messages) => {
+      let alternations = 0;
+      let users = 0;
+      let assistants = 0;
+      let textLength = 0;
+      messages.forEach((message, index) => {
+        if (message.role === 'user') users += 1;
+        if (message.role === 'assistant') assistants += 1;
+        textLength += String(message.text || '').length;
+        if (index > 0 && messages[index - 1].role !== message.role) alternations += 1;
+      });
+      return {
+        count: messages.length,
+        users,
+        assistants,
+        textLength,
+        complete: users > 0 && assistants > 0,
+        alternationRatio: messages.length > 1 ? alternations / (messages.length - 1) : 0
+      };
+    };
+
+    const a = stats(first);
+    const b = stats(second);
+
+    if (!first.length) return second;
+    if (!second.length) return first;
+
+    // A provider DOM can be only partially hydrated while the network/script copy
+    // already contains the full conversation. Prefer the source with broader turn
+    // coverage instead of treating the first user+assistant pair as "complete".
+    let skeleton = first;
+    let enrichment = second;
+
+    const secondClearlyBroader = b.complete && (
+      (!a.complete) ||
+      (b.count >= a.count + 2 && b.alternationRatio >= 0.35) ||
+      (b.count > a.count && b.textLength > a.textLength * 1.15) ||
+      (b.count === a.count && b.textLength > a.textLength * 1.35 + 300)
+    );
+
+    const firstClearlyBroader = a.complete && (
+      (!b.complete) ||
+      (a.count >= b.count + 2 && a.alternationRatio >= 0.35) ||
+      (a.count > b.count && a.textLength > b.textLength * 1.15) ||
+      (a.count === b.count && a.textLength > b.textLength * 1.35 + 300)
+    );
+
+    if (secondClearlyBroader && !firstClearlyBroader) {
+      skeleton = second;
+      enrichment = first;
+    }
+
+    const normalized = (value) => dedupeTextKey(value).replace(/[^a-z0-9\u00c0-\u024f]+/gi, ' ').trim();
+    const sameMessage = (left, right) => {
+      if (!left || !right || left.role !== right.role) return false;
+      const l = normalized(left.text);
+      const r = normalized(right.text);
+      if (!l || !r) return false;
+      if (l === r) return true;
+      const shorter = l.length <= r.length ? l : r;
+      const longer = l.length > r.length ? l : r;
+      return shorter.length >= 36 && longer.includes(shorter) && shorter.length / longer.length >= 0.55;
+    };
+
+    // Preserve the sequence from the broader source, but borrow richer DOM HTML
+    // for matching messages. If the DOM version itself is truncated, keep the
+    // longer structured text instead.
+    const used = new Set();
+    const merged = skeleton.map((message) => {
+      let matchIndex = -1;
+      for (let index = 0; index < enrichment.length; index += 1) {
+        if (used.has(index)) continue;
+        if (sameMessage(message, enrichment[index])) {
+          matchIndex = index;
+          break;
+        }
+      }
+      if (matchIndex < 0) return message;
+      used.add(matchIndex);
+      const alternative = enrichment[matchIndex];
+      const currentLength = String(message.text || '').length;
+      const alternativeLength = String(alternative.text || '').length;
+      if (alternativeLength >= currentLength * 0.9 && String(alternative.html || '').length > String(message.html || '').length) {
+        return alternative;
+      }
+      return message;
     });
+
+    // If neither source is clearly broader, merge unique tail messages rather
+    // than silently dropping them. This is especially useful for virtualized
+    // ChatGPT pages where the final turns arrive after the initial DOM snapshot.
+    if (!secondClearlyBroader && !firstClearlyBroader) {
+      enrichment.forEach((candidate, index) => {
+        if (used.has(index)) return;
+        if (merged.some(existing => sameMessage(existing, candidate))) return;
+        const last = merged[merged.length - 1];
+        if (!last || last.role !== candidate.role) merged.push(candidate);
+      });
+    }
+
     return merged;
   }
 
@@ -802,7 +894,7 @@
       return clean.sort((a, b) => textOf(b).length - textOf(a).length)[0];
     }
 
-    const turnSections = Array.from(root.querySelectorAll('section[data-turn], [data-testid^="conversation-turn-"]'));
+    const turnSections = Array.from(root.querySelectorAll('section[data-turn], article[data-turn], [data-testid^="conversation-turn-"]'));
 
     turnSections.forEach((section) => {
       const roleAttr = section.getAttribute('data-turn') || '';

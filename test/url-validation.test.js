@@ -60,3 +60,34 @@ test('extracts structured messages embedded in JSON script tags', () => {
     { role: 'assistant', text: 'Embedded answer' }
   ]);
 });
+
+test('parses Google anti-XSSI JSON payloads', () => {
+  const parsed = parsePotentialStructuredBody(")]}'\n" + JSON.stringify({ messages: [
+    { role: 'user', content: 'Gemini question' },
+    { role: 'assistant', content: 'Gemini answer' }
+  ] }));
+  assert.deepEqual(collectStructuredMessages(parsed), [
+    { role: 'user', text: 'Gemini question' },
+    { role: 'assistant', text: 'Gemini answer' }
+  ]);
+});
+
+test('parses React/Next numeric-prefixed structured stream lines', () => {
+  const parsed = parsePotentialStructuredBody([
+    '1:' + JSON.stringify({ role: 'user', content: 'Long chat question' }),
+    '2:' + JSON.stringify({ role: 'assistant', content: 'Long chat answer' })
+  ].join('\n'));
+  assert.deepEqual(collectStructuredMessages(parsed), [
+    { role: 'user', text: 'Long chat question' },
+    { role: 'assistant', text: 'Long chat answer' }
+  ]);
+});
+
+test('accepts current Gemini public short-link formats', () => {
+  assert.equal(validateShareUrl('https://g.co/gemini/share/abcXYZ123').provider, 'gemini');
+  assert.equal(validateShareUrl('https://share.gemini.google/KkLTrnbeU5Uy').provider, 'gemini');
+});
+
+test('does not allow arbitrary g.co redirects', () => {
+  assert.ok(validateShareUrl('https://g.co/some-other-redirect').error);
+});

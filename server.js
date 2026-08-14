@@ -84,15 +84,19 @@ const limiter = rateLimit({
 });
 
 async function collectChatGPTHTML(page, url) {
-    // ChatGPT shared conversations may virtualize older turns. If we call
-    // page.content() only after scrolling, the first turns can disappear from
-    // the live DOM. This collector snapshots visible turns while moving from
-    // top to bottom and then builds a stable synthetic HTML document.
+    // ChatGPT virtualizes long conversations. A single page.content() snapshot can
+    // therefore contain only the currently mounted slice. Walk the real scroll root,
+    // keep snapshots of every turn we see, and update a turn when hydration later
+    // replaces a placeholder/partial response with richer content.
     return await page.evaluate(async (sourceUrl) => {
         const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+        const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim();
 
         function getScrollTarget() {
-            const candidates = [document.scrollingElement, document.documentElement, document.body, ...Array.from(document.querySelectorAll('main, [class*="overflow-y-auto"], [class*="scroll"], [data-testid]'))];
+            const explicit = document.querySelector('[data-scroll-root]');
+            if (explicit) return explicit;
+            const candidates = [document.scrollingElement, document.documentElement, document.body,
+                ...Array.from(document.querySelectorAll('main, [class*="overflow-y-auto"], [class*="overflow-y-scroll"], [class*="scroll"]'))];
             return candidates
                 .filter(Boolean)
                 .map((el) => ({ el, delta: (el.scrollHeight || 0) - (el.clientHeight || 0) }))
@@ -102,83 +106,275 @@ async function collectChatGPTHTML(page, url) {
         function cleanClone(node) {
             const clone = node.cloneNode(true);
             clone.querySelectorAll([
-                'script', 'style', 'noscript', 'template', 'button', 'input', 'textarea', 'select',
+                'script', 'style', 'noscript', 'template', 'input', 'textarea', 'select',
                 'nav', 'footer', 'aside', 'form', 'iframe', 'canvas', 'audio', 'video',
-                '[aria-hidden="true"]', '.sr-only', '.hidden', '.sticky', '.order-first',
-                '[class*="actions"]', '[class*="copy"]', '[class*="popover"]', '[class*="tooltip"]'
+                '[aria-hidden="true"]', '.sr-only', '.hidden',
+                '[class*="copy-button"]', '[class*="popover"]', '[class*="tooltip"]',
+                '[data-testid*="action"]', '[data-testid*="copy"]'
             ].join(',')).forEach(el => el.remove());
+            Array.from(clone.querySelectorAll('button')).forEach((button) => {
+                if (!/thought for/i.test(normalize(button.textContent))) button.remove();
+            });
             return clone;
         }
 
-        function turnKey(node) {
+        function roleFor(node) {
+            const explicit = node.getAttribute('data-turn') || node.getAttribute('data-message-author-role') ||
+                node.querySelector('[data-message-author-role]')?.getAttribute('data-message-author-role') || '';
+            if (/user/i.test(explicit)) return 'user';
+            if (/assistant/i.test(explicit)) return 'assistant';
+            return '';
+        }
+
+        function orderFor(node, fallback) {
+            const values = [
+                node.getAttribute('data-turn-index'),
+                node.getAttribute('data-index'),
+                node.getAttribute('data-testid'),
+                node.id
+            ].filter(Boolean).join(' ');
+            const match = values.match(/conversation-turn-(\d+)|(?:turn|message)[-_]?(\d+)/i);
+            const numeric = match ? Number(match[1] || match[2]) : NaN;
+            return Number.isFinite(numeric) ? numeric : fallback;
+        }
+
+        function turnKey(node, role, fallback) {
             return node.getAttribute('data-turn-id') ||
                 node.getAttribute('data-turn-id-container') ||
                 node.getAttribute('data-testid') ||
-                `${node.getAttribute('data-turn') || ''}:${(node.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 180)}`;
+                node.id ||
+                `${role}:${normalize(node.textContent).slice(0, 260)}:${fallback}`;
         }
 
         const turns = new Map();
-        const capture = () => {
-            document.querySelectorAll('section[data-turn], [data-testid^="conversation-turn-"]').forEach((node) => {
-                const text = (node.textContent || '').replace(/\s+/g, ' ').trim();
-                if (!text) return;
-                const key = turnKey(node);
-                if (!key || turns.has(key)) return;
-                turns.set(key, cleanClone(node).outerHTML);
+        let sequence = 0;
+        let totalTextLength = 0;
+
+        function turnNodes() {
+            const explicit = Array.from(document.querySelectorAll([
+                'section[data-turn]', 'article[data-turn]',
+                '[data-testid^="conversation-turn-"]'
+            ].join(',')));
+            if (explicit.length) return [...new Set(explicit)];
+
+            // Fallback for UI variants that expose only role wrappers.
+            return Array.from(document.querySelectorAll('[data-message-author-role]')).filter((node) => {
+                const parentRole = node.parentElement?.closest?.('[data-message-author-role]');
+                return !parentRole;
             });
-        };
+        }
+
+        function capture() {
+            let changed = 0;
+            turnNodes().forEach((node) => {
+                const role = roleFor(node);
+                const text = normalize(node.textContent);
+                if (!role || !text) return;
+
+                const observed = sequence++;
+                const key = turnKey(node, role, observed);
+                const clone = cleanClone(node);
+                const html = clone.outerHTML;
+                const textLength = text.length;
+                const existing = turns.get(key);
+
+                if (!existing) {
+                    turns.set(key, { html, role, textLength, htmlLength: html.length, order: orderFor(node, observed), firstSeen: observed });
+                    totalTextLength += textLength;
+                    changed += 1;
+                    return;
+                }
+
+                // Hydration/streaming can make an already-seen turn substantially richer.
+                if (textLength > existing.textLength || html.length > existing.htmlLength * 1.08) {
+                    totalTextLength += Math.max(0, textLength - existing.textLength);
+                    existing.html = html;
+                    existing.textLength = Math.max(existing.textLength, textLength);
+                    existing.htmlLength = Math.max(existing.htmlLength, html.length);
+                    changed += 1;
+                }
+            });
+            return { count: turns.size, textLength: totalTextLength, changed };
+        }
+
+        function clickExpansionButtons() {
+            const buttons = Array.from(document.querySelectorAll('#thread button, main button'));
+            let clicked = 0;
+            buttons.forEach((button) => {
+                const label = normalize(`${button.getAttribute('aria-label') || ''} ${button.textContent || ''}`);
+                if (!/(show more|see more|load more|continue reading|expand response|expand text)/i.test(label)) return;
+                if (/log in|sign up|continue chat|continue conversation/i.test(label)) return;
+                try { button.click(); clicked += 1; } catch (_) {}
+            });
+            return clicked;
+        }
 
         const target = getScrollTarget();
-        const maxSteps = 72;
-        const stepSize = Math.max(420, Math.floor((window.innerHeight || 900) * 0.72));
-        let stagnant = 0;
-        let lastTop = -1;
-        let lastCount = -1;
+        const viewport = Math.max(650, target.clientHeight || window.innerHeight || 900);
+        const stepSize = Math.max(520, Math.floor(viewport * 0.82));
+        const maxSteps = 120;
+        let stableBottomCycles = 0;
+        let previousSignature = '';
 
-        try { target.scrollTo ? target.scrollTo(0, 0) : window.scrollTo(0, 0); } catch (_) { window.scrollTo(0, 0); }
-        await sleep(700);
+        try { target.scrollTo?.(0, 0); } catch (_) { window.scrollTo(0, 0); }
+        await sleep(900);
+        clickExpansionButtons();
         capture();
 
         for (let i = 0; i < maxSteps; i += 1) {
+            if (i % 4 === 0) clickExpansionButtons();
             const beforeTop = target.scrollTop || window.scrollY || 0;
-            const beforeCount = turns.size;
-            try {
-                target.scrollBy ? target.scrollBy(0, stepSize) : window.scrollBy(0, stepSize);
-            } catch (_) {
-                window.scrollBy(0, stepSize);
+            const beforeHeight = target.scrollHeight || document.documentElement.scrollHeight || 0;
+
+            try { target.scrollBy?.(0, stepSize); } catch (_) { window.scrollBy(0, stepSize); }
+            await sleep(360);
+            let metrics = capture();
+
+            let afterTop = target.scrollTop || window.scrollY || 0;
+            let afterHeight = target.scrollHeight || document.documentElement.scrollHeight || 0;
+            let maxTop = Math.max(0, afterHeight - (target.clientHeight || window.innerHeight || 0));
+            let atBottom = afterTop >= maxTop - 16 || (afterTop === beforeTop && afterHeight <= beforeHeight);
+
+            if (atBottom) {
+                // Lazy hydration at the bottom often takes longer than one animation frame.
+                await sleep(900);
+                clickExpansionButtons();
+                metrics = capture();
+
+                try {
+                    target.scrollBy?.(0, -Math.min(320, Math.floor(stepSize / 3)));
+                    await sleep(180);
+                    target.scrollTo?.(0, target.scrollHeight || 0);
+                } catch (_) {
+                    window.scrollBy(0, -260);
+                    await sleep(180);
+                    window.scrollTo(0, document.documentElement.scrollHeight || 0);
+                }
+                await sleep(520);
+                metrics = capture();
+
+                afterTop = target.scrollTop || window.scrollY || 0;
+                afterHeight = target.scrollHeight || document.documentElement.scrollHeight || 0;
+                maxTop = Math.max(0, afterHeight - (target.clientHeight || window.innerHeight || 0));
+                const signature = `${metrics.count}:${metrics.textLength}:${afterHeight}:${Math.round(afterTop)}`;
+                if (signature === previousSignature && afterTop >= maxTop - 20) stableBottomCycles += 1;
+                else stableBottomCycles = 0;
+                previousSignature = signature;
+                if (stableBottomCycles >= 4) break;
+            } else {
+                stableBottomCycles = 0;
+                previousSignature = `${metrics.count}:${metrics.textLength}:${afterHeight}:${Math.round(afterTop)}`;
             }
-            await sleep(240);
-            capture();
-
-            const afterTop = target.scrollTop || window.scrollY || 0;
-            const maxTop = Math.max(0, (target.scrollHeight || document.documentElement.scrollHeight || 0) - (target.clientHeight || window.innerHeight || 0));
-            const atBottom = afterTop >= maxTop - 8 || afterTop === beforeTop;
-            const noNewTurns = turns.size === beforeCount;
-            const samePosition = afterTop === lastTop && turns.size === lastCount;
-
-            if ((atBottom && noNewTurns) || samePosition) stagnant += 1;
-            else stagnant = 0;
-
-            lastTop = afterTop;
-            lastCount = turns.size;
-
-            if (stagnant >= 3) break;
         }
 
+        // One reverse pass catches virtualized turns that may have been replaced while
+        // later content was loading and lets us refresh richer copies of earlier turns.
+        const bottom = Math.max(0, (target.scrollHeight || document.documentElement.scrollHeight || 0) - (target.clientHeight || window.innerHeight || 0));
+        for (let pos = bottom; pos > 0; pos -= Math.floor(stepSize * 1.15)) {
+            try { target.scrollTo?.(0, Math.max(0, pos)); } catch (_) { window.scrollTo(0, Math.max(0, pos)); }
+            await sleep(150);
+            capture();
+        }
+        try { target.scrollTo?.(0, 0); } catch (_) { window.scrollTo(0, 0); }
+        await sleep(300);
+        clickExpansionButtons();
         capture();
-        try { target.scrollTo ? target.scrollTo(0, 0) : window.scrollTo(0, 0); } catch (_) { window.scrollTo(0, 0); }
+
+        // Revisit the bottom once more: a last assistant response can mount only after
+        // the page has completed the previous lazy-load cycle.
+        try { target.scrollTo?.(0, target.scrollHeight || 0); } catch (_) { window.scrollTo(0, document.documentElement.scrollHeight || 0); }
+        await sleep(900);
+        clickExpansionButtons();
+        capture();
 
         const title = document.title || '';
         const canonical = document.querySelector('link[rel="canonical"]')?.getAttribute('href') || sourceUrl || '';
         const ogTitle = document.querySelector('meta[property="og:title"]')?.getAttribute('content') || '';
         const ogDescription = document.querySelector('meta[property="og:description"]')?.getAttribute('content') || '';
+        const escapeAttr = (value) => String(value || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 
-        return `<!doctype html><html lang="${document.documentElement.lang || 'en'}"><head>` +
-            `<title>${title.replace(/</g, '&lt;')}</title>` +
-            `<link rel="canonical" href="${canonical.replace(/"/g, '&quot;')}">` +
-            `<meta property="og:title" content="${ogTitle.replace(/"/g, '&quot;')}">` +
-            `<meta property="og:description" content="${ogDescription.replace(/"/g, '&quot;')}">` +
-            `</head><body><main id="c2p-collected-chatgpt" data-provider="chatgpt">${Array.from(turns.values()).join('\n')}</main></body></html>`;
+        const orderedTurns = Array.from(turns.values())
+            .sort((a, b) => a.order === b.order ? a.firstSeen - b.firstSeen : a.order - b.order)
+            .map(item => item.html);
+
+        return `<!doctype html><html lang="${escapeAttr(document.documentElement.lang || 'en')}"><head>` +
+            `<title>${escapeAttr(title)}</title>` +
+            `<link rel="canonical" href="${escapeAttr(canonical)}">` +
+            `<meta property="og:title" content="${escapeAttr(ogTitle)}">` +
+            `<meta property="og:description" content="${escapeAttr(ogDescription)}">` +
+            `</head><body><main id="c2p-collected-chatgpt" data-provider="chatgpt" data-collected-turns="${orderedTurns.length}">${orderedTurns.join('\n')}</main></body></html>`;
+    }, url);
+}
+
+async function collectGeminiHTML(page, url) {
+    // Gemini's public share route hydrates Angular custom elements asynchronously.
+    // Wait for complete user/assistant pairs and snapshot only the share viewer so a
+    // slow app shell or sign-in chrome cannot make a valid public chat look empty.
+    return await page.evaluate(async (sourceUrl) => {
+        const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+        const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+        const scrollTarget = document.scrollingElement || document.documentElement;
+
+        function expandPrompts() {
+            Array.from(document.querySelectorAll('[data-test-id="luminous-expand-button"], button[aria-label="Expand"]')).forEach((button) => {
+                try { button.click(); } catch (_) {}
+            });
+        }
+
+        function metrics() {
+            const turns = Array.from(document.querySelectorAll('share-viewer share-turn-viewer, .share-viewer share-turn-viewer'));
+            let users = 0;
+            let assistants = 0;
+            let textLength = 0;
+            turns.forEach((turn) => {
+                const user = turn.querySelector('user-query .query-text, user-query-content .query-text, .query-text');
+                const assistant = turn.querySelector('response-container message-content .markdown-main-panel, response-container .markdown-main-panel, message-content .markdown-main-panel, .markdown-main-panel');
+                const userText = normalize(user?.textContent);
+                const assistantText = normalize(assistant?.textContent);
+                if (userText) { users += 1; textLength += userText.length; }
+                if (assistantText) { assistants += 1; textLength += assistantText.length; }
+            });
+            return { turns: turns.length, users, assistants, textLength, height: scrollTarget.scrollHeight || 0 };
+        }
+
+        let stable = 0;
+        let previous = '';
+        for (let i = 0; i < 42; i += 1) {
+            expandPrompts();
+            const m = metrics();
+            const signature = `${m.turns}:${m.users}:${m.assistants}:${m.textLength}:${m.height}`;
+            if (m.users > 0 && m.assistants > 0 && signature === previous) stable += 1;
+            else stable = 0;
+            previous = signature;
+            if (stable >= 3) break;
+
+            if (i % 3 === 0) {
+                try { scrollTarget.scrollTo?.(0, scrollTarget.scrollHeight || 0); } catch (_) { window.scrollTo(0, document.documentElement.scrollHeight || 0); }
+            }
+            await sleep(550);
+        }
+
+        expandPrompts();
+        await sleep(350);
+        const root = document.querySelector('share-viewer') || document.querySelector('.share-landing-page_content');
+        if (!root) return '';
+
+        const clone = root.cloneNode(true);
+        clone.querySelectorAll([
+            'script', 'style', 'noscript', 'template', 'button', 'input', 'textarea', 'select',
+            'iframe', 'canvas', 'audio', 'video', '.luminous-actions-container', '.link-action-buttons',
+            '.response-container-header', '.response-container-footer', '.share-viewer_legal-links', '.share-viewer_footer',
+            '[data-test-id="prompt-copy-button"]', '[data-test-id="report-link"]'
+        ].join(',')).forEach((node) => node.remove());
+
+        const title = document.querySelector('share-viewer .headline strong, .share-viewer .headline strong')?.textContent?.trim() || document.title || '';
+        const date = document.querySelector('share-viewer .publish-time, .share-viewer .publish-time')?.textContent?.trim() || '';
+        const canonical = document.querySelector('link[rel="canonical"]')?.getAttribute('href') || sourceUrl || '';
+        const escapeAttr = (value) => String(value || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+
+        return `<!doctype html><html lang="${escapeAttr(document.documentElement.lang || 'en')}"><head>` +
+            `<title>${escapeAttr(title)}</title><link rel="canonical" href="${escapeAttr(canonical)}"></head>` +
+            `<body><div class="publish-time">${escapeAttr(date)}</div><main id="c2p-collected-gemini" data-provider="gemini">${clone.outerHTML}</main></body></html>`;
     }, url);
 }
 
@@ -229,8 +425,8 @@ function createNetworkCapture(page, requestId) {
     const pending = new Set();
     const failedApiResponses = [];
     let capturedBytes = 0;
-    const MAX_TOTAL_BYTES = 2_500_000;
-    const MAX_RESPONSE_BYTES = 900_000;
+    const MAX_TOTAL_BYTES = 12_000_000;
+    const MAX_RESPONSE_BYTES = 6_000_000;
 
     const responseHandler = (response) => {
         const request = response.request();
@@ -263,7 +459,7 @@ function createNetworkCapture(page, requestId) {
 
             capturedBytes += body.length;
             payloads.push(parsed);
-            if (payloads.length > 20) payloads.shift();
+            if (payloads.length > 40) payloads.shift();
         })().catch((error) => {
             if (process.env.DEBUG_EXTRACTION === '1') {
                 console.log(`[${requestId}] response capture error: ${error.message}`);
@@ -354,15 +550,74 @@ function detectBlockedOrUnavailable({ status, evidence, failedApiResponses }) {
 }
 
 async function waitForConversation(page, provider, timeout) {
-    const selectors = PROVIDER_CONFIG[provider]?.selectors || {};
-    const selector = [selectors.user, selectors.assistant].filter(Boolean).join(', ');
-    if (!selector) return false;
-    try {
-        await page.waitForSelector(selector, { timeout });
-        return true;
-    } catch (_) {
-        return false;
+    const deadline = Date.now() + Math.max(1000, timeout || 0);
+    let stable = 0;
+    let previous = '';
+
+    while (Date.now() < deadline) {
+        try {
+            if (provider === 'gemini') {
+                await page.evaluate(() => {
+                    document.querySelectorAll('[data-test-id="luminous-expand-button"], button[aria-label="Expand"]')
+                        .forEach((button) => { try { button.click(); } catch (_) {} });
+                }).catch(() => {});
+            }
+
+            const evidence = await inspectConversationDOM(page, provider);
+            if (hasUsableDomEvidence(evidence)) {
+                const signature = `${evidence.users}:${evidence.assistants}:${evidence.textLength}`;
+                if (signature === previous) stable += 1;
+                else stable = 0;
+                previous = signature;
+
+                // Gemini needs an extra stable poll because its Angular route often
+                // mounts the prompt first and the response shortly afterwards.
+                if ((provider === 'gemini' && stable >= 2) || (provider !== 'gemini' && stable >= 1)) {
+                    return true;
+                }
+            }
+        } catch (_) {}
+        await delay(provider === 'gemini' ? 650 : 500);
     }
+    return false;
+}
+
+function inspectCollectedHTMLEvidence(html, provider) {
+    const source = String(html || '');
+    if (!source) return { users: 0, assistants: 0, textLength: 0 };
+    const count = (regex) => (source.match(regex) || []).length;
+    const plainTextLength = source
+        .replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;|&#160;/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim().length;
+
+    let users = 0;
+    let assistants = 0;
+    if (provider === 'chatgpt') {
+        users = count(/data-(?:message-author-role|turn)=["']user["']/gi);
+        assistants = count(/data-(?:message-author-role|turn)=["']assistant["']/gi);
+    } else if (provider === 'gemini') {
+        users = count(/class=["'][^"']*\bquery-text(?:-line)?\b[^"']*["']/gi) || count(/<user-query\b/gi);
+        assistants = count(/class=["'][^"']*\bmarkdown-main-panel\b[^"']*["']/gi) || count(/<response-container\b/gi);
+    } else if (provider === 'qwen') {
+        users = count(/qwen-chat-message-user/gi);
+        assistants = count(/qwen-chat-message-assistant/gi);
+    } else if (provider === 'grok') {
+        users = count(/data-testid=["']user-message["']/gi);
+        assistants = count(/data-testid=["']assistant-message["']/gi);
+    } else if (provider === 'claude') {
+        users = count(/font-user-message|data-message-author-role=["']user["']/gi);
+        assistants = count(/font-claude-message|data-message-author-role=["']assistant["']|data-test-render/gi);
+    }
+
+    return { users, assistants, textLength: plainTextLength };
+}
+
+function hasUsableCollectedEvidence(evidence) {
+    return !!evidence && evidence.users > 0 && evidence.assistants > 0 && evidence.textLength >= 20;
 }
 
 async function collectPageHTML(page, provider, url) {
@@ -372,6 +627,12 @@ async function collectPageHTML(page, provider, url) {
         if (provider === 'chatgpt') {
             let html = await collectChatGPTHTML(page, url);
             if (!/data-message-author-role|conversation-turn-|data-turn=/i.test(html)) html = await page.content();
+            return html;
+        }
+
+        if (provider === 'gemini') {
+            let html = await collectGeminiHTML(page, url);
+            if (!/share-turn-viewer|markdown-main-panel|query-text/i.test(html)) html = await page.content();
             return html;
         }
 
@@ -465,10 +726,11 @@ app.post('/api/extract', limiter, async (req, res) => {
             'Accept-Language': 'en-US,en;q=0.9'
         });
 
-        // Blocking only heavy media keeps JS, CSS, fonts and API requests intact.
+        // Keep images available: some shared Gemini/ChatGPT responses only finish
+        // mounting after image-backed content resolves. We block video/audio only.
         await page.setRequestInterception(true);
         page.on('request', (request) => {
-            const operation = ['image', 'media'].includes(request.resourceType())
+            const operation = request.resourceType() === 'media'
                 ? request.abort()
                 : request.continue();
             operation.catch(() => {});
@@ -494,34 +756,54 @@ app.post('/api/extract', limiter, async (req, res) => {
             });
         }
 
-        await waitForConversation(page, provider, 16000);
+        await waitForConversation(page, provider, provider === 'gemini' ? 26000 : 18000);
         await networkCapture.flush();
+
         let evidence = await inspectConversationDOM(page, provider);
         let networkMessages = collectStructuredMessages(networkCapture.payloads);
         let embeddedMessages = [];
-        if (!hasUsableDomEvidence(evidence) && !hasUsableNetworkEvidence(networkMessages)) {
-            embeddedMessages = collectEmbeddedStructuredMessages(await page.content());
-        }
-        let fallbackMessages = collectStructuredMessages([networkMessages, embeddedMessages]);
+        let fallbackMessages = collectStructuredMessages(networkMessages);
+        let html = '';
+        let htmlEvidence = { users: 0, assistants: 0, textLength: 0 };
         let status = navigationResponse?.status() || 0;
-        let state = (!hasUsableDomEvidence(evidence) && !hasUsableNetworkEvidence(fallbackMessages))
+
+        // Do not reject a page just because the first live-DOM poll was early.
+        // Provider-specific collectors can trigger lazy hydration and produce a
+        // stable snapshot even when the shell initially exposes only one side.
+        if (!hasUsableDomEvidence(evidence) && !hasUsableNetworkEvidence(fallbackMessages)) {
+            html = await collectPageHTML(page, provider, url);
+            htmlEvidence = inspectCollectedHTMLEvidence(html, provider);
+            embeddedMessages = collectEmbeddedStructuredMessages(html);
+            fallbackMessages = collectStructuredMessages([networkMessages, embeddedMessages]);
+        }
+
+        let hasConversationEvidence = hasUsableDomEvidence(evidence) ||
+            hasUsableNetworkEvidence(fallbackMessages) ||
+            hasUsableCollectedEvidence(htmlEvidence);
+        let state = !hasConversationEvidence
             ? detectBlockedOrUnavailable({ status, evidence, failedApiResponses: networkCapture.failedApiResponses })
             : '';
 
-        // One conservative retry helps with transient hydration failures without
-        // turning every request into a long-running browser job.
-        if (!hasUsableDomEvidence(evidence) && !hasUsableNetworkEvidence(fallbackMessages) && !state) {
-            console.log(`[${requestId}] no conversation evidence after first load; retrying hydration once`);
+        // One retry is still useful for a transient provider hydration failure, but
+        // on retry we always run the provider collector before declaring failure.
+        if (!hasConversationEvidence && !state) {
+            console.log(`[${requestId}] no complete conversation evidence after first load; retrying hydration once`);
             try {
-                navigationResponse = await page.reload({ waitUntil: 'domcontentloaded', timeout: 25000 }) || navigationResponse;
-                await waitForConversation(page, provider, 9000);
+                navigationResponse = await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }) || navigationResponse;
+                await waitForConversation(page, provider, provider === 'gemini' ? 18000 : 11000);
                 await networkCapture.flush();
                 evidence = await inspectConversationDOM(page, provider);
                 networkMessages = collectStructuredMessages(networkCapture.payloads);
-                embeddedMessages = collectEmbeddedStructuredMessages(await page.content());
+
+                html = await collectPageHTML(page, provider, url);
+                htmlEvidence = inspectCollectedHTMLEvidence(html, provider);
+                embeddedMessages = collectEmbeddedStructuredMessages(html);
                 fallbackMessages = collectStructuredMessages([networkMessages, embeddedMessages]);
                 status = navigationResponse?.status() || status;
-                state = (!hasUsableDomEvidence(evidence) && !hasUsableNetworkEvidence(fallbackMessages))
+                hasConversationEvidence = hasUsableDomEvidence(evidence) ||
+                    hasUsableNetworkEvidence(fallbackMessages) ||
+                    hasUsableCollectedEvidence(htmlEvidence);
+                state = !hasConversationEvidence
                     ? detectBlockedOrUnavailable({ status, evidence, failedApiResponses: networkCapture.failedApiResponses })
                     : '';
             } catch (_) {
@@ -542,39 +824,48 @@ app.post('/api/extract', limiter, async (req, res) => {
             );
         }
 
-        if (!hasUsableDomEvidence(evidence) && !hasUsableNetworkEvidence(fallbackMessages)) {
-            console.warn(`[${requestId}] no messages: status=${status} final=${safeUrlForLog(evidence?.url)} title=${JSON.stringify(evidence?.title || '')} apiFailures=${JSON.stringify(networkCapture.failedApiResponses)} pageErrors=${JSON.stringify(pageErrors)}`);
+        if (!hasConversationEvidence) {
+            console.warn(`[${requestId}] no messages: status=${status} final=${safeUrlForLog(evidence?.url)} title=${JSON.stringify(evidence?.title || '')} dom=${evidence?.users || 0}/${evidence?.assistants || 0} collected=${htmlEvidence.users}/${htmlEvidence.assistants} apiFailures=${JSON.stringify(networkCapture.failedApiResponses)} pageErrors=${JSON.stringify(pageErrors)}`);
             throw new ExtractionError(
                 `The public ${provider} page opened, but its conversation data was not delivered to the extractor. The provider may have changed its page structure or blocked datacenter browsers.`,
                 { status: 502, code: 'CONVERSATION_NOT_DELIVERED' }
             );
         }
 
-        let html = await collectPageHTML(page, provider, url);
+        if (!html) html = await collectPageHTML(page, provider, url);
+        htmlEvidence = inspectCollectedHTMLEvidence(html, provider);
         await networkCapture.flush();
         networkMessages = collectStructuredMessages(networkCapture.payloads);
         embeddedMessages = collectEmbeddedStructuredMessages(html);
         fallbackMessages = collectStructuredMessages([networkMessages, embeddedMessages]);
         html = appendNetworkFallback(html, provider, fallbackMessages);
 
-        // Final server-side guard: never report success for a shell/login page that
-        // contains no conversation evidence. The browser parser can still choose
-        // the richer DOM path when it is present.
-        if (!hasUsableDomEvidence(evidence) && !hasUsableNetworkEvidence(fallbackMessages)) {
+        // Final guard accepts any independently useful extraction path. This is
+        // especially important for Gemini, where the custom-element snapshot may
+        // be valid even if the earlier live-DOM poll happened during hydration.
+        if (!hasUsableDomEvidence(evidence) &&
+            !hasUsableNetworkEvidence(fallbackMessages) &&
+            !hasUsableCollectedEvidence(htmlEvidence)) {
             throw new ExtractionError('No conversation messages were found after extraction.', {
                 status: 502,
                 code: 'EMPTY_EXTRACTION'
             });
         }
 
-        console.log(`[${requestId}] extraction succeeded provider=${provider} dom=${evidence.users}/${evidence.assistants} fallbackMessages=${fallbackMessages.length}`);
+        const source = hasUsableCollectedEvidence(htmlEvidence)
+            ? 'collected-html'
+            : (hasUsableDomEvidence(evidence) ? 'dom' : 'structured-fallback');
+        console.log(`[${requestId}] extraction succeeded provider=${provider} dom=${evidence.users}/${evidence.assistants} collected=${htmlEvidence.users}/${htmlEvidence.assistants} fallbackMessages=${fallbackMessages.length}`);
         return res.json({
             success: true,
             provider,
             html,
             diagnostics: {
                 requestId,
-                source: hasUsableDomEvidence(evidence) ? 'dom' : 'structured-fallback'
+                source,
+                domMessages: { users: evidence.users || 0, assistants: evidence.assistants || 0 },
+                collectedMessages: { users: htmlEvidence.users || 0, assistants: htmlEvidence.assistants || 0 },
+                structuredMessages: fallbackMessages.length
             }
         });
     } catch (error) {

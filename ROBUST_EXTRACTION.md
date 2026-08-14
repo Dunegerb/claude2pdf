@@ -26,3 +26,11 @@ Do not commit proxy credentials or browser WebSocket secrets to the repository. 
 `GET /healthz` returns `{ "ok": true }` and can be used as the Railway health-check path.
 
 Extraction errors include a short `requestId` in the API response and server logs, making production failures easier to correlate without logging conversation content.
+
+## Long-conversation and Gemini hardening (August 2026)
+
+- ChatGPT long shared chats are collected from the real `[data-scroll-root]` in both directions. Turn snapshots are refreshed when later hydration produces a longer/richer copy, so a partial assistant response cannot permanently replace its final text.
+- The parser compares DOM, network, and embedded-script coverage. A short DOM extraction is no longer considered authoritative merely because it contains one user/assistant pair; the broader conversation sequence wins and matching rich DOM formatting is retained.
+- Gemini waits for both prompt and response content and for stable Angular hydration before snapshotting `share-turn-viewer`. Collapsed prompts are expanded before serialization.
+- Structured response parsing accepts SSE, Google anti-XSSI JSON and numeric-prefixed React/Next stream chunks.
+- Gemini public short links are accepted in the current `g.co/gemini/share/...` format, along with canonical `gemini.google.com/share/...` and `share.gemini.google/...` links.
