@@ -932,10 +932,10 @@
       if (!node) return '';
       const className = String(node.className || '');
       const closestUser = node.closest && node.closest('[class*="font-user-message"], [data-testid="user-message"], [data-message-author-role="user"]');
-      const closestAssistant = node.closest && node.closest('[class*="font-claude-message"], [data-testid="assistant-message"], [data-message-author-role="assistant"]');
+      const closestAssistant = node.closest && node.closest('.font-claude-response, [class*="font-claude-message"], [data-testid="assistant-message"], [data-message-author-role="assistant"]');
       if (closestUser || /font-user-message|user-message/i.test(className)) return 'user';
-      if (closestAssistant || /font-claude-message|claude-message|assistant-message/i.test(className)) return 'assistant';
-      if (node.matches && node.matches('.prose, [data-test-render="true"], .markdown, [class*="markdown"]')) return 'assistant';
+      if (closestAssistant || /font-claude-response|font-claude-message|claude-message|assistant-message/i.test(className)) return 'assistant';
+      if (node.matches && node.matches('.standard-markdown, .progressive-markdown, .prose, [data-test-render="true"], .markdown, [class*="markdown"]')) return 'assistant';
       return '';
     }
 
@@ -950,11 +950,14 @@
       const contentNode = (() => {
         if (role === 'assistant') {
           return node.querySelector && (
-            node.matches?.('[data-test-render="true"], .prose, [class*="font-claude-message"], [class*="markdown"]') ? node : null
+            node.matches?.('.font-claude-response, [class*="font-claude-message"], .standard-markdown, .progressive-markdown, [data-test-render="true"], .prose, [class*="markdown"]') ? node : null
           ) || (node.querySelector && (
+            node.querySelector('.font-claude-response') ||
+            node.querySelector('[class*="font-claude-message"]') ||
+            node.querySelector('.standard-markdown') ||
+            node.querySelector('.progressive-markdown') ||
             node.querySelector('[data-test-render="true"]') ||
             node.querySelector('.prose') ||
-            node.querySelector('[class*="font-claude-message"]') ||
             node.querySelector('[class*="markdown"]')
           )) || node;
         }
@@ -1021,8 +1024,18 @@
       return true;
     }
 
-    // 1) Current Claude shared pages: user and assistant text usually carry these font classes.
-    Array.from(root.querySelectorAll('[class*="font-user-message"], [class*="font-claude-message"]')).forEach((node) => {
+    // 0) Dedicated server-side Claude collector. These sections preserve the
+    // rendered DOM and have explicit roles, so they are the most deterministic source.
+    Array.from(root.querySelectorAll('[data-c2p-claude-turn]')).forEach((turn) => {
+      const rawRole = turn.getAttribute('data-message-author-role') || '';
+      const role = /user/i.test(rawRole) ? 'user' : (/assistant|claude/i.test(rawRole) ? 'assistant' : '');
+      const content = turn.querySelector('.c2p-claude-content') || turn;
+      addClaudeCandidate(role, content, { orderNode: turn });
+    });
+
+    // 1) Current Claude shared pages (observed Aug 2026): users use
+    // data-testid="user-message" and assistants use .font-claude-response.
+    Array.from(root.querySelectorAll('[data-testid="user-message"], [class*="font-user-message"], .font-claude-response, [class*="font-claude-message"], [data-testid="assistant-message"]')).forEach((node) => {
       addClaudeCandidate(roleForClaudeNode(node), node);
     });
 
@@ -1033,7 +1046,7 @@
     // Use this only when the explicit Claude assistant selector did not already work;
     // otherwise the same response is captured twice.
     if (!hasExplicitAssistant) {
-      Array.from(root.querySelectorAll('.prose, [data-test-render="true"], [class*="markdown"]')).forEach((node) => {
+      Array.from(root.querySelectorAll('.standard-markdown, .progressive-markdown, .prose, [data-test-render="true"], [class*="markdown"]')).forEach((node) => {
         if (node.closest('[class*="font-user-message"]')) return;
         addClaudeCandidate('assistant', node);
       });
@@ -1056,10 +1069,10 @@
     if (!messages.length) {
       const working = (root || doc.body).cloneNode(true);
       removeNoise(working);
-      working.querySelectorAll('.prose, [data-test-render="true"]').forEach((node) => {
+      working.querySelectorAll('.standard-markdown, .progressive-markdown, .prose, [data-test-render="true"]').forEach((node) => {
         addClaudeCandidate('assistant', node);
       });
-      working.querySelectorAll('.font-user-message, [class*="font-user-message"]').forEach((node) => {
+      working.querySelectorAll('[data-testid="user-message"], .font-user-message, [class*="font-user-message"]').forEach((node) => {
         addClaudeCandidate('user', node);
       });
     }
@@ -1503,9 +1516,9 @@
     }
     .pdf-template-root.provider-claude .assistant-copy > :first-child { margin-top: 0; }
     .pdf-template-root.provider-claude .assistant-copy > :last-child:not(.actions) { margin-bottom: 0; }
-    .pdf-template-root.provider-claude .assistant-copy p { margin: 0 0 12px; }
+    .pdf-template-root.provider-claude .assistant-copy p { margin: 0 0 12px; line-height: 24px; }
     .pdf-template-root.provider-claude .assistant-copy strong,
-    .pdf-template-root.provider-claude .assistant-copy b { font-weight: 700; }
+    .pdf-template-root.provider-claude .assistant-copy b { font-weight: 600; }
     .pdf-template-root.provider-claude .assistant-copy em,
     .pdf-template-root.provider-claude .assistant-copy i { font-style: italic; }
     .pdf-template-root.provider-claude .assistant-copy u { text-decoration: underline; text-underline-offset: 2px; }
@@ -1532,11 +1545,11 @@
       letter-spacing: 0;
     }
     .pdf-template-root.provider-claude .assistant-copy h1 { margin: 18px 0 8px; font-size: 26px; line-height: 1.2; font-weight: 700; }
-    .pdf-template-root.provider-claude .assistant-copy h2 { margin: 12px 0 -4px; font-size: 22px; line-height: 1.25; font-weight: 700; }
-    .pdf-template-root.provider-claude .assistant-copy h3 { margin: 12px 0 -4px; font-size: 18px; line-height: 1.3; font-weight: 700; }
-    .pdf-template-root.provider-claude .assistant-copy h4 { margin: 8px 0 -4px; font-size: 16px; line-height: 1.4; font-weight: 700; }
-    .pdf-template-root.provider-claude .assistant-copy h5 { margin: 8px 0 -4px; font-size: 16px; line-height: 1.4; font-weight: 700; }
-    .pdf-template-root.provider-claude .assistant-copy h6 { margin: 8px 0 -4px; font-size: 14px; line-height: 1.4; font-weight: 600; }
+    .pdf-template-root.provider-claude .assistant-copy h2 { margin: 12px 0 -4px; font-size: 22px; line-height: 26.4px; font-weight: 600; }
+    .pdf-template-root.provider-claude .assistant-copy h3 { margin: 12px 0 -4px; font-size: 18px; line-height: 26.4px; font-weight: 600; }
+    .pdf-template-root.provider-claude .assistant-copy h4 { margin: 8px 0 -4px; font-size: 16px; line-height: 24px; font-weight: 600; }
+    .pdf-template-root.provider-claude .assistant-copy h5 { margin: 8px 0 -4px; font-size: 16px; line-height: 24px; font-weight: 600; }
+    .pdf-template-root.provider-claude .assistant-copy h6 { margin: 8px 0 -4px; font-size: 14px; line-height: 20px; font-weight: 600; }
     .pdf-template-root.provider-claude .assistant-copy ul,
     .pdf-template-root.provider-claude .assistant-copy ol {
       margin: 0 0 12px;
@@ -1544,14 +1557,14 @@
     }
     .pdf-template-root.provider-claude .assistant-copy ul { list-style-type: disc; }
     .pdf-template-root.provider-claude .assistant-copy ol { list-style-type: decimal; }
-    .pdf-template-root.provider-claude .assistant-copy li { margin: 4px 0; padding-left: 8px; }
+    .pdf-template-root.provider-claude .assistant-copy li { margin: 4px 0; padding-left: 8px; line-height: 24px; }
     .pdf-template-root.provider-claude .assistant-copy li > p { margin: 0; }
     .pdf-template-root.provider-claude .assistant-copy li > ul,
     .pdf-template-root.provider-claude .assistant-copy li > ol { margin-top: 4px; margin-bottom: 4px; }
     .pdf-template-root.provider-claude .assistant-copy blockquote {
       margin: 12px 0 12px 8px;
-      padding: 0 0 0 16px;
-      border-left: 4px solid rgba(17,17,15,.1);
+      padding: 0 32px 0 8px;
+      border-left: 3.2px solid rgba(17,17,15,.1);
       color: var(--claude-text-secondary);
     }
     .pdf-template-root.provider-claude .assistant-copy hr {
@@ -1564,7 +1577,7 @@
     .pdf-template-root.provider-claude .assistant-copy code {
       font-family: var(--claude-mono);
       font-size: .9rem;
-      line-height: 1.4;
+      line-height: 1.5;
       color: #8c2f39;
       background: rgba(17,17,15,.05);
       border: .5px solid rgba(17,17,15,.14);
@@ -1632,7 +1645,7 @@
       text-align: left;
       vertical-align: top;
     }
-    .pdf-template-root.provider-claude .assistant-copy th { font-weight: 700; color: var(--claude-text); }
+    .pdf-template-root.provider-claude .assistant-copy th { font-weight: 600; color: var(--claude-text); }
     .pdf-template-root.provider-claude .assistant-copy tbody td { border-bottom-color: rgba(17,17,15,.1); }
     .pdf-template-root.provider-claude .c2p-task-checkbox {
       display: inline-flex;

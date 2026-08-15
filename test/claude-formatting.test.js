@@ -71,3 +71,30 @@ test('Claude preserves task-list state and current syntax-highlight palette', ()
   assert.match(source, /rgb\(112,184,255\)/);
   assert.match(source, /rgb\(94,237,237\)/);
 });
+
+
+test('Claude rich rendered DOM wins over equivalent raw Markdown network fallback', () => {
+  const mergeClaude = loadClaudeMerge();
+  const visible = [
+    msg('user', 'gere com texto com tudo isso por favor'),
+    msg(
+      'assistant',
+      'Título 1 Negrito Itálico item um item dois Código inline Citação Coluna A Coluna B valor valor',
+      '<div><h2>Título 1</h2><p><strong>Negrito</strong> <em>Itálico</em></p><ul><li>item um</li><li>item dois</li></ul><p><code>Código inline</code></p><blockquote>Citação</blockquote><table><thead><tr><th>Coluna A</th><th>Coluna B</th></tr></thead><tbody><tr><td>valor</td><td>valor</td></tr></tbody></table></div>'
+    )
+  ];
+  const fallback = [
+    msg('user', 'gere com texto com tudo isso por favor'),
+    msg(
+      'assistant',
+      '## Título 1 **Negrito** *Itálico* - item um - item dois `Código inline` > Citação | Coluna A | Coluna B | | valor | valor |'
+    )
+  ];
+
+  const merged = mergeClaude(visible, fallback);
+  assert.equal(merged.length, 2);
+  assert.match(merged[1].html, /<h2>Título 1<\/h2>/);
+  assert.match(merged[1].html, /<strong>Negrito<\/strong>/);
+  assert.match(merged[1].html, /<table>/);
+  assert.doesNotMatch(merged[1].html, /\*\*Negrito\*\*/);
+});

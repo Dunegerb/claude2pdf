@@ -306,6 +306,176 @@ async function collectChatGPTHTML(page, url) {
     }, url);
 }
 
+async function collectClaudeHTML(page, url) {
+    // Claude's current public-share DOM exposes user turns as data-testid="user-message"
+    // and assistant turns as .font-claude-response containing .standard-markdown /
+    // .progressive-markdown. Capture those rendered nodes directly so network/script
+    // Markdown remains a last-resort fallback rather than replacing semantic HTML.
+    return await page.evaluate(async (sourceUrl) => {
+        const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+        const normalize = (value) => String(value || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+        const escapeAttr = (value) => String(value || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+
+        function getScrollTarget() {
+            const candidates = [
+                document.scrollingElement,
+                document.documentElement,
+                document.body,
+                ...Array.from(document.querySelectorAll('main, [class*="overflow-y-auto"], [class*="overflow-y-scroll"], [class*="scroll"]'))
+            ].filter(Boolean);
+            return candidates
+                .map((el) => ({ el, delta: Math.max(0, (el.scrollHeight || 0) - (el.clientHeight || 0)) }))
+                .sort((a, b) => b.delta - a.delta)[0]?.el || document.scrollingElement || document.documentElement;
+        }
+
+        function roleFor(node) {
+            if (!node) return '';
+            if (node.matches?.('[data-testid="user-message"], [class*="font-user-message"], [data-message-author-role="user"]')) return 'user';
+            if (node.matches?.('.font-claude-response, [class*="font-claude-message"], [data-testid="assistant-message"], [data-message-author-role="assistant"]')) return 'assistant';
+            return '';
+        }
+
+        function contentFor(node, role) {
+            if (role === 'assistant') {
+                // Keep the outer Claude response root when available: tool-status rows can
+                // sit beside the markdown body. parser.js will sanitize UI chrome later.
+                if (node.matches?.('.font-claude-response, [class*="font-claude-message"]')) return node;
+                return node.closest?.('.font-claude-response, [class*="font-claude-message"]') ||
+                    node.querySelector?.('.standard-markdown, .progressive-markdown, [class*="markdown"]') || node;
+            }
+            return node;
+        }
+
+        function turnNodes() {
+            const users = Array.from(document.querySelectorAll(
+                '[data-testid="user-message"], [class*="font-user-message"], [data-message-author-role="user"]'
+            ));
+            const assistants = Array.from(document.querySelectorAll(
+                '.font-claude-response, [class*="font-claude-message"], [data-testid="assistant-message"], [data-message-author-role="assistant"]'
+            )).filter((node) => {
+                // Do not capture nested wrappers for the same response twice.
+                const parent = node.parentElement?.closest?.('.font-claude-response, [class*="font-claude-message"]');
+                return !parent;
+            });
+            return [...new Set([...users, ...assistants])].sort((a, b) => {
+                if (a === b) return 0;
+                return a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+            });
+        }
+
+        function semanticRichness(node) {
+            if (!node?.querySelectorAll) return 0;
+            const weighted = [
+                ['strong,b', 8], ['em,i', 5], ['h1,h2,h3,h4,h5,h6', 6],
+                ['ul,ol,li', 4], ['pre', 10], ['code', 5], ['table', 10],
+                ['blockquote', 6], ['math,.katex,.MathJax,[class*="math"]', 12]
+            ];
+            return weighted.reduce((score, [selector, weight]) => {
+                let count = 0;
+                try { count = node.querySelectorAll(selector).length; } catch (_) {}
+                return score + Math.min(count, 50) * weight;
+            }, 0);
+        }
+
+        function cleanClone(node) {
+            const clone = node.cloneNode(true);
+            clone.querySelectorAll([
+                'script', 'style', 'noscript', 'template', 'textarea', 'select',
+                'iframe', 'canvas', 'audio', 'video', 'form',
+                'input:not([type="checkbox"])', 'button', '[role="button"]',
+                '[class*="copy-button"]', '[class*="popover"]', '[class*="tooltip"]'
+            ].join(',')).forEach(el => el.remove());
+            return clone;
+        }
+
+        const turns = new Map();
+        let sequence = 0;
+
+        function capture() {
+            const occurrences = new Map();
+            let changed = 0;
+            turnNodes().forEach((node, domIndex) => {
+                const role = roleFor(node);
+                const content = contentFor(node, role);
+                const text = normalize(content?.innerText || content?.textContent || '');
+                if (!role || !text) return;
+
+                const base = `${role}:${text.slice(0, 12000)}`;
+                const occurrence = occurrences.get(base) || 0;
+                occurrences.set(base, occurrence + 1);
+                const key = `${base}:${occurrence}`;
+
+                const clone = cleanClone(content);
+                const html = clone.outerHTML;
+                const richness = semanticRichness(content);
+                const existing = turns.get(key);
+                const order = existing?.order ?? sequence++;
+
+                if (!existing || richness > existing.richness || html.length > existing.html.length * 1.08) {
+                    turns.set(key, { role, text, html, richness, order, domIndex });
+                    changed += 1;
+                }
+            });
+            return changed;
+        }
+
+        const target = getScrollTarget();
+        const viewport = Math.max(650, target.clientHeight || window.innerHeight || 900);
+        const step = Math.max(480, Math.floor(viewport * 0.78));
+        let previousSignature = '';
+        let stableBottom = 0;
+
+        try { target.scrollTo?.(0, 0); } catch (_) { window.scrollTo(0, 0); }
+        await sleep(450);
+        capture();
+
+        for (let i = 0; i < 100; i += 1) {
+            const beforeTop = target.scrollTop || window.scrollY || 0;
+            try { target.scrollBy?.(0, step); } catch (_) { window.scrollBy(0, step); }
+            await sleep(220);
+            capture();
+
+            const top = target.scrollTop || window.scrollY || 0;
+            const height = target.scrollHeight || document.documentElement.scrollHeight || 0;
+            const client = target.clientHeight || window.innerHeight || 0;
+            const maxTop = Math.max(0, height - client);
+            const signature = `${turns.size}:${height}:${Math.round(top)}`;
+            const atBottom = top >= maxTop - 16 || top === beforeTop;
+
+            if (atBottom && signature === previousSignature) stableBottom += 1;
+            else stableBottom = 0;
+            previousSignature = signature;
+            if (stableBottom >= 3) break;
+        }
+
+        // Reverse pass covers pages that virtualize earlier rows while scrolling down.
+        const bottom = Math.max(0, (target.scrollHeight || 0) - (target.clientHeight || window.innerHeight || 0));
+        for (let pos = bottom; pos > 0; pos -= Math.floor(step * 1.15)) {
+            try { target.scrollTo?.(0, Math.max(0, pos)); } catch (_) { window.scrollTo(0, Math.max(0, pos)); }
+            await sleep(140);
+            capture();
+        }
+        try { target.scrollTo?.(0, 0); } catch (_) { window.scrollTo(0, 0); }
+        await sleep(180);
+        capture();
+
+        const ordered = Array.from(turns.values())
+            .sort((a, b) => a.order - b.order)
+            .map((turn, index) =>
+                `<section data-c2p-claude-turn="${index}" data-message-author-role="${turn.role}" data-c2p-richness="${turn.richness}">` +
+                `<div class="c2p-claude-content">${turn.html}</div></section>`
+            );
+
+        if (!ordered.length) return '';
+        const title = document.querySelector('meta[property="og:title"]')?.getAttribute('content') || document.title || '';
+        const canonical = document.querySelector('link[rel="canonical"]')?.getAttribute('href') || sourceUrl || '';
+        return `<!doctype html><html lang="${escapeAttr(document.documentElement.lang || 'en')}"><head>` +
+            `<title>${escapeAttr(title)}</title><link rel="canonical" href="${escapeAttr(canonical)}">` +
+            `<meta property="og:title" content="${escapeAttr(title)}"></head>` +
+            `<body><main id="c2p-collected-claude" data-provider="claude" data-collected-turns="${ordered.length}">${ordered.join('\n')}</main></body></html>`;
+    }, url);
+}
+
 async function collectGeminiHTML(page, url) {
     // Gemini's public share route hydrates Angular custom elements asynchronously.
     // Wait for complete user/assistant pairs and snapshot only the share viewer so a
@@ -609,8 +779,8 @@ function inspectCollectedHTMLEvidence(html, provider) {
         users = count(/data-testid=["']user-message["']/gi);
         assistants = count(/data-testid=["']assistant-message["']/gi);
     } else if (provider === 'claude') {
-        users = count(/font-user-message|data-message-author-role=["']user["']/gi);
-        assistants = count(/font-claude-message|data-message-author-role=["']assistant["']|data-test-render/gi);
+        users = count(/data-testid=["']user-message["']|font-user-message|data-message-author-role=["']user["']/gi);
+        assistants = count(/font-claude-response|font-claude-message|standard-markdown|progressive-markdown|data-message-author-role=["']assistant["']|data-test-render/gi);
     }
 
     return { users, assistants, textLength: plainTextLength };
@@ -627,6 +797,12 @@ async function collectPageHTML(page, provider, url) {
         if (provider === 'chatgpt') {
             let html = await collectChatGPTHTML(page, url);
             if (!/data-message-author-role|conversation-turn-|data-turn=/i.test(html)) html = await page.content();
+            return html;
+        }
+
+        if (provider === 'claude') {
+            let html = await collectClaudeHTML(page, url);
+            if (!/data-c2p-claude-turn|font-claude-response|standard-markdown|progressive-markdown/i.test(html)) html = await page.content();
             return html;
         }
 
