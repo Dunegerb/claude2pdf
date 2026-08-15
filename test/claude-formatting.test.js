@@ -52,3 +52,22 @@ test('Claude visual CSS is fully provider-scoped', () => {
   assert.match(source, /\.pdf-template-root\.provider-claude \.c2p-claude-tool-status/);
   assert.match(source, /safe\.provider === 'claude' \? ' provider-claude' : ''/);
 });
+
+test('Claude exact shared-chat typography and spacing remain provider-scoped', () => {
+  const source = fs.readFileSync(parserPath, 'utf8');
+  assert.match(source, /\.pdf-template-root\.provider-claude \.assistant-copy \{[\s\S]*font-size: 16px;[\s\S]*line-height: 1\.65rem;/);
+  assert.match(source, /\.pdf-template-root\.provider-claude \.assistant-copy h2 \{[^}]*font-size: 22px;/);
+  assert.match(source, /\.pdf-template-root\.provider-claude \.assistant-copy h3 \{[^}]*font-size: 18px;/);
+  assert.match(source, /padding-left: 32px;/);
+  assert.match(source, /border-bottom: \.5px solid rgba\(17,17,15,\.18\)/);
+});
+
+test('Claude preserves task-list state and current syntax-highlight palette', () => {
+  const source = fs.readFileSync(parserPath, 'utf8');
+  assert.match(source, /input\[type=\\\"checkbox\\\"\]/);
+  assert.match(source, /c2p-task-checked/);
+  assert.match(source, /c2p-syntax-keyword/);
+  assert.match(source, /rgb\(204,123,244\)/);
+  assert.match(source, /rgb\(112,184,255\)/);
+  assert.match(source, /rgb\(94,237,237\)/);
+});

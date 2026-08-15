@@ -197,7 +197,14 @@
 
   const CLAUDE_SAFE_CLASSES = new Set([
     'c2p-claude-tool-status',
-    'c2p-claude-muted'
+    'c2p-claude-muted',
+    'c2p-task-checkbox',
+    'c2p-task-checked',
+    'c2p-syntax-keyword',
+    'c2p-syntax-function',
+    'c2p-syntax-parameter',
+    'c2p-syntax-number',
+    'c2p-syntax-plain'
   ]);
 
   function replaceInlineTag(el, tagName) {
@@ -210,6 +217,15 @@
 
   function semanticizeClaudeMarkup(root) {
     if (!root?.querySelectorAll) return;
+
+    // Claude task lists use disabled checkbox inputs. Convert them to inert spans
+    // before sanitization so the checked/unchecked state survives in the PDF.
+    Array.from(root.querySelectorAll('input[type=\"checkbox\"]')).forEach((input) => {
+      const marker = root.ownerDocument.createElement('span');
+      marker.setAttribute('class', `c2p-task-checkbox${input.checked || input.hasAttribute('checked') ? ' c2p-task-checked' : ''}`);
+      marker.setAttribute('aria-hidden', 'true');
+      input.replaceWith(marker);
+    });
 
     // Claude's rendered UI carries some semantics in utility classes rather than
     // HTML tags. Convert those classes before the sanitizer strips provider CSS.
@@ -252,6 +268,23 @@
       if (/^file created successfully\s*:\s*\/mnt\/(?:user-data|data)\//i.test(text)) {
         el.remove();
         return;
+      }
+
+      // Preserve Claude's current syntax-highlighting colors from rendered code.
+      // The provider emits them as inline rgb() styles, which the sanitizer would
+      // otherwise strip. The palette names below are scoped to Claude only.
+      if (tag === 'span' && el.closest?.('pre, code')) {
+        const normalizedStyle = style.replace(/\s+/g, '').toLowerCase();
+        let syntaxClass = '';
+        if (/color:rgb\(204,123,244\)/.test(normalizedStyle)) syntaxClass = 'c2p-syntax-keyword';
+        else if (/color:rgb\(112,184,255\)/.test(normalizedStyle)) syntaxClass = 'c2p-syntax-function';
+        else if (/color:rgb\(247,171,95\)/.test(normalizedStyle)) syntaxClass = 'c2p-syntax-parameter';
+        else if (/color:rgb\(94,237,237\)/.test(normalizedStyle)) syntaxClass = 'c2p-syntax-number';
+        else if (/color:rgb\(211,215,222\)|color:rgb\(234,236,240\)/.test(normalizedStyle)) syntaxClass = 'c2p-syntax-plain';
+        if (syntaxClass) {
+          el.setAttribute('class', syntaxClass);
+          return;
+        }
       }
 
       // Preserve Claude's muted tool/action captions before utility classes and
@@ -1422,41 +1455,69 @@
     .pdf-template-root .actions { display: flex; align-items: center; gap: 14px; margin-top: 13px; color: #6f747a; height: 18px; }
     .pdf-template-root .actions svg { width: 16px; height: 16px; stroke-width: 1.55; opacity: .92; flex: none; }
 
-    /* Claude-only fidelity layer. Keep every selector under .provider-claude so
-       ChatGPT, Gemini, Grok and Qwen retain their existing PDF appearance. */
+    /* Claude-only fidelity layer. Values mirror Claude's current shared-chat DOM:
+       sans-serif user bubbles, serif assistant responses, 1.65rem response leading,
+       12px block rhythm, Claude heading scale, list indents, table rules, code blocks,
+       task lists and syntax colors. Every selector stays provider-scoped so no other
+       provider can inherit these changes. */
     .pdf-template-root.provider-claude {
       --claude-serif: Georgia, "Times New Roman", Times, serif;
       --claude-ui: Arial, Helvetica, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --claude-mono: "SF Mono", SFMono-Regular, Consolas, Menlo, "Liberation Mono", monospace;
+      --claude-text: #11110f;
+      --claude-text-secondary: #6d6b67;
+      --claude-text-muted: #898781;
+      --claude-rule: rgba(17,17,15,.18);
+      --claude-code-bg: #20201f;
+      --claude-code-fg: #eaecf0;
     }
+    .pdf-template-root.provider-claude .message.user { margin-top: 24px; }
     .pdf-template-root.provider-claude .bubble {
+      max-width: min(85%, 588px);
+      padding: 10px 14px;
+      border-radius: 14px;
+      background: #f0efec;
+      border: 0;
+      color: var(--claude-text);
       font-family: var(--claude-ui);
-      font-weight: 500;
-      line-height: 1.42;
+      font-size: 15px;
+      font-weight: 400;
+      line-height: 20px;
+      letter-spacing: 0;
+    }
+    .pdf-template-root.provider-claude .bubble.small {
+      min-height: auto;
+      min-width: 0;
+      padding: 9px 14px;
+      border-radius: 14px;
+      line-height: 20px;
     }
     .pdf-template-root.provider-claude .assistant-copy {
       max-width: 151mm;
-      color: #111;
+      color: var(--claude-text);
       font-family: var(--claude-serif);
-      font-size: 15px;
-      line-height: 1.5;
-      letter-spacing: -.006em;
+      font-size: 16px;
+      font-weight: 400;
+      line-height: 1.65rem;
+      letter-spacing: 0;
     }
     .pdf-template-root.provider-claude .assistant-copy > :first-child { margin-top: 0; }
     .pdf-template-root.provider-claude .assistant-copy > :last-child:not(.actions) { margin-bottom: 0; }
-    .pdf-template-root.provider-claude .assistant-copy p { margin: 0 0 11px; }
+    .pdf-template-root.provider-claude .assistant-copy p { margin: 0 0 12px; }
     .pdf-template-root.provider-claude .assistant-copy strong,
     .pdf-template-root.provider-claude .assistant-copy b { font-weight: 700; }
     .pdf-template-root.provider-claude .assistant-copy em,
     .pdf-template-root.provider-claude .assistant-copy i { font-style: italic; }
-    .pdf-template-root.provider-claude .assistant-copy u { text-decoration: underline; text-underline-offset: .12em; }
+    .pdf-template-root.provider-claude .assistant-copy u { text-decoration: underline; text-underline-offset: 2px; }
     .pdf-template-root.provider-claude .assistant-copy s,
     .pdf-template-root.provider-claude .assistant-copy del { text-decoration: line-through; }
     .pdf-template-root.provider-claude .assistant-copy mark { background: #fff0a6; color: inherit; padding: 0 .08em; }
     .pdf-template-root.provider-claude .assistant-copy a {
       color: inherit;
-      text-decoration: underline;
-      text-decoration-color: rgba(0,0,0,.35);
-      text-underline-offset: .13em;
+      text-decoration-line: underline;
+      text-decoration-thickness: 1px;
+      text-decoration-color: rgba(17,17,15,.4);
+      text-underline-offset: 2px;
     }
     .pdf-template-root.provider-claude .assistant-copy h1,
     .pdf-template-root.provider-claude .assistant-copy h2,
@@ -1465,52 +1526,86 @@
     .pdf-template-root.provider-claude .assistant-copy h5,
     .pdf-template-root.provider-claude .assistant-copy h6 {
       font-family: var(--claude-serif);
-      font-weight: 700;
       color: inherit;
       page-break-after: avoid;
       break-after: avoid;
+      letter-spacing: 0;
     }
-    .pdf-template-root.provider-claude .assistant-copy h1 { margin: 22px 0 10px; font-size: 21px; line-height: 1.2; letter-spacing: -.022em; }
-    .pdf-template-root.provider-claude .assistant-copy h2 { margin: 19px 0 9px; font-size: 18px; line-height: 1.23; letter-spacing: -.018em; }
-    .pdf-template-root.provider-claude .assistant-copy h3 { margin: 17px 0 8px; font-size: 16px; line-height: 1.25; letter-spacing: -.012em; }
-    .pdf-template-root.provider-claude .assistant-copy h4,
-    .pdf-template-root.provider-claude .assistant-copy h5,
-    .pdf-template-root.provider-claude .assistant-copy h6 { margin: 15px 0 7px; font-size: 14.5px; line-height: 1.28; }
+    .pdf-template-root.provider-claude .assistant-copy h1 { margin: 18px 0 8px; font-size: 26px; line-height: 1.2; font-weight: 700; }
+    .pdf-template-root.provider-claude .assistant-copy h2 { margin: 12px 0 -4px; font-size: 22px; line-height: 1.25; font-weight: 700; }
+    .pdf-template-root.provider-claude .assistant-copy h3 { margin: 12px 0 -4px; font-size: 18px; line-height: 1.3; font-weight: 700; }
+    .pdf-template-root.provider-claude .assistant-copy h4 { margin: 8px 0 -4px; font-size: 16px; line-height: 1.4; font-weight: 700; }
+    .pdf-template-root.provider-claude .assistant-copy h5 { margin: 8px 0 -4px; font-size: 16px; line-height: 1.4; font-weight: 700; }
+    .pdf-template-root.provider-claude .assistant-copy h6 { margin: 8px 0 -4px; font-size: 14px; line-height: 1.4; font-weight: 600; }
     .pdf-template-root.provider-claude .assistant-copy ul,
-    .pdf-template-root.provider-claude .assistant-copy ol { margin: 0 0 12px; padding-left: 24px; }
-    .pdf-template-root.provider-claude .assistant-copy li { margin: 4px 0; padding-left: 1px; }
-    .pdf-template-root.provider-claude .assistant-copy li > p { margin: 0 0 5px; }
-    .pdf-template-root.provider-claude .assistant-copy blockquote {
-      margin: 13px 0;
-      padding: 2px 0 2px 13px;
-      border-left: 3px solid rgba(0,0,0,.18);
-      color: #4e4e4e;
+    .pdf-template-root.provider-claude .assistant-copy ol {
+      margin: 0 0 12px;
+      padding-left: 32px;
     }
-    .pdf-template-root.provider-claude .assistant-copy hr { height: 1px; border: 0; background: rgba(0,0,0,.11); margin: 18px 0; }
+    .pdf-template-root.provider-claude .assistant-copy ul { list-style-type: disc; }
+    .pdf-template-root.provider-claude .assistant-copy ol { list-style-type: decimal; }
+    .pdf-template-root.provider-claude .assistant-copy li { margin: 4px 0; padding-left: 8px; }
+    .pdf-template-root.provider-claude .assistant-copy li > p { margin: 0; }
+    .pdf-template-root.provider-claude .assistant-copy li > ul,
+    .pdf-template-root.provider-claude .assistant-copy li > ol { margin-top: 4px; margin-bottom: 4px; }
+    .pdf-template-root.provider-claude .assistant-copy blockquote {
+      margin: 12px 0 12px 8px;
+      padding: 0 0 0 16px;
+      border-left: 4px solid rgba(17,17,15,.1);
+      color: var(--claude-text-secondary);
+    }
+    .pdf-template-root.provider-claude .assistant-copy hr {
+      height: 0;
+      border: 0;
+      border-top: .5px solid rgba(17,17,15,.18);
+      background: transparent;
+      margin: 12px 6px;
+    }
+    .pdf-template-root.provider-claude .assistant-copy code {
+      font-family: var(--claude-mono);
+      font-size: .9rem;
+      line-height: 1.4;
+      color: #8c2f39;
+      background: rgba(17,17,15,.05);
+      border: .5px solid rgba(17,17,15,.14);
+      border-radius: .4rem;
+      padding: 1px 4px;
+      letter-spacing: 0;
+    }
     .pdf-template-root.provider-claude .assistant-copy pre {
       max-width: 100%;
       white-space: pre-wrap;
       overflow-wrap: anywhere;
-      background: #f6f6f4;
-      border: 1px solid rgba(0,0,0,.065);
-      border-radius: 12px;
-      padding: 12px 13px;
-      font: 12px/1.48 "SF Mono", SFMono-Regular, Consolas, Menlo, monospace;
+      overflow-x: visible;
+      background: var(--claude-code-bg);
+      color: var(--claude-code-fg);
+      border: .5px solid rgba(255,255,255,.12);
+      border-radius: 8px;
+      padding: 14px;
+      font-family: var(--claude-mono);
+      font-size: 14px;
+      line-height: 1.625;
       break-inside: auto;
       page-break-inside: auto;
-      tab-size: 2;
+      tab-size: 4;
     }
-    .pdf-template-root.provider-claude .assistant-copy code {
-      font: 12px/1.4 "SF Mono", SFMono-Regular, Consolas, Menlo, monospace;
-      background: rgba(0,0,0,.055);
-      border-radius: 4px;
-      padding: 1px 4px;
-      letter-spacing: 0;
+    .pdf-template-root.provider-claude .assistant-copy pre code {
+      color: inherit;
+      background: transparent;
+      border: 0;
+      border-radius: 0;
+      padding: 0;
+      font: inherit;
+      white-space: pre-wrap;
     }
-    .pdf-template-root.provider-claude .assistant-copy pre code { background: transparent; border-radius: 0; padding: 0; }
+    .pdf-template-root.provider-claude .assistant-copy .c2p-syntax-keyword { color: rgb(204,123,244); }
+    .pdf-template-root.provider-claude .assistant-copy .c2p-syntax-function { color: rgb(112,184,255); }
+    .pdf-template-root.provider-claude .assistant-copy .c2p-syntax-parameter { color: rgb(247,171,95); }
+    .pdf-template-root.provider-claude .assistant-copy .c2p-syntax-number { color: rgb(94,237,237); }
+    .pdf-template-root.provider-claude .assistant-copy .c2p-syntax-plain { color: rgb(211,215,222); }
     .pdf-template-root.provider-claude .assistant-copy kbd {
-      font: 11.5px/1.25 "SF Mono", SFMono-Regular, Consolas, Menlo, monospace;
-      border: 1px solid rgba(0,0,0,.18);
+      font: 12px/1.25 var(--claude-mono);
+      border: 1px solid rgba(17,17,15,.18);
       border-bottom-width: 2px;
       border-radius: 5px;
       padding: 1px 5px;
@@ -1521,40 +1616,70 @@
     .pdf-template-root.provider-claude .assistant-copy table {
       width: 100%;
       border-collapse: collapse;
-      margin: 13px 0;
-      font-family: var(--claude-ui);
-      font-size: 11.7px;
-      line-height: 1.42;
+      margin: 0 0 24px;
+      font-family: var(--claude-serif);
+      font-size: 14px;
+      line-height: 1.7;
       break-inside: auto;
       page-break-inside: auto;
     }
-    .pdf-template-root.provider-claude .assistant-copy thead { display: table-header-group; }
+    .pdf-template-root.provider-claude .assistant-copy thead { display: table-header-group; text-align: left; }
     .pdf-template-root.provider-claude .assistant-copy th,
-    .pdf-template-root.provider-claude .assistant-copy td { border: 1px solid rgba(0,0,0,.095); padding: 7px 8px; text-align: left; vertical-align: top; }
-    .pdf-template-root.provider-claude .assistant-copy th { background: #f6f6f4; font-weight: 650; }
+    .pdf-template-root.provider-claude .assistant-copy td {
+      border: 0;
+      border-bottom: .5px solid rgba(17,17,15,.18);
+      padding: 8px 16px 8px 0;
+      text-align: left;
+      vertical-align: top;
+    }
+    .pdf-template-root.provider-claude .assistant-copy th { font-weight: 700; color: var(--claude-text); }
+    .pdf-template-root.provider-claude .assistant-copy tbody td { border-bottom-color: rgba(17,17,15,.1); }
+    .pdf-template-root.provider-claude .c2p-task-checkbox {
+      display: inline-flex;
+      width: 14px;
+      height: 14px;
+      margin: 0 7px 0 0;
+      vertical-align: -2px;
+      border: 1.25px solid #77746f;
+      border-radius: 3px;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--claude-ui);
+      box-sizing: border-box;
+    }
+    .pdf-template-root.provider-claude .c2p-task-checkbox.c2p-task-checked {
+      background: #6d6b67;
+      border-color: #6d6b67;
+    }
+    .pdf-template-root.provider-claude .c2p-task-checkbox.c2p-task-checked::after {
+      content: "✓";
+      color: #fff;
+      font-size: 10px;
+      line-height: 1;
+      transform: translateY(-.25px);
+    }
     .pdf-template-root.provider-claude .c2p-claude-tool-status,
     .pdf-template-root.provider-claude .c2p-claude-muted {
       display: block;
       font-family: var(--claude-ui) !important;
       font-weight: 400 !important;
       font-style: normal !important;
-      letter-spacing: -.005em;
-      color: #777;
+      letter-spacing: 0;
+      color: var(--claude-text-muted);
     }
     .pdf-template-root.provider-claude .c2p-claude-tool-status {
-      margin: 0 0 7px;
-      font-size: 12.2px;
+      margin: 0 0 6px;
+      font-size: 12px;
       line-height: 1.35;
-      color: #737373;
     }
     .pdf-template-root.provider-claude .c2p-claude-muted {
-      margin: 7px 0 10px;
-      font-size: 12.5px;
+      margin: 6px 0 10px;
+      font-size: 12px;
       line-height: 1.4;
-      color: #7c7c7c;
+      color: var(--claude-text-muted);
     }
-    .pdf-template-root.provider-claude .c2p-math-display { margin: 16px auto 17px; }
-    .pdf-template-root.provider-claude .c2p-math-inline { margin: 0 .09em; }
+    .pdf-template-root.provider-claude .c2p-math-display { margin: 12px auto; }
+    .pdf-template-root.provider-claude .c2p-math-inline { margin: 0 .08em; }
     @media print { @page { size: A4; margin: 0; } html, body { width: 210mm; background: #fff; } .pdf-template-root { background: #fff; } .pdf-template-root .stack { padding: 0; } .pdf-template-root .sheet { width: 210mm; min-height: 297mm; margin: 0; box-shadow: none; -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
   `;
 
