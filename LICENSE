@@ -1,105 +1,144 @@
-# DUNEGERB PROPRIETARY SOURCE-AVAILABLE LICENSE
+DUNEGERB PROPRIETARY SOURCE-AVAILABLE LICENSE
+Version 1.0, 2026
 
-**Version 1.0, 2026**
+Copyright (c) 2026 Dunegerb. All Rights Reserved.
 
-Copyright © 2026 Dunegerb. All Rights Reserved.
+1. LIMITED PERMISSION TO INSPECT
 
-This repository is made publicly available for transparency, technical inspection, privacy verification, security review, and research. It is not open-source software.
-
-## 1. Limited Permission to Inspect
+This repository is made publicly available for transparency, technical inspection,
+privacy verification, security review, and research. It is not open-source
+software.
 
 Subject to the terms below, you may:
 
-a. view and inspect the source code through GitHub;
+a. View and inspect the source code through GitHub.
 
-b. clone the repository to a local machine solely for inspection, evaluation, security or privacy review, academic research, and testing;
+b. Clone the repository to a local machine solely for inspection, evaluation,
+security or privacy review, academic research, and testing.
 
-c. run the software locally in a non-production environment solely for those same inspection, evaluation, research, review, and testing purposes;
+c. Run the software locally in a non-production environment solely for those same
+inspection, evaluation, research, review, and testing purposes.
 
-d. run the project's test suite for those purposes; and
+d. Run the project's test suite for those purposes.
 
-e. quote small portions of the source code in technical analysis, security reports, reviews, or academic work, provided the quotation is reasonably necessary for commentary, does not substitute for the software itself, and includes appropriate attribution where practical.
+e. Quote small portions of the source code in technical analysis, security
+reports, reviews, or academic work, provided the quotation is reasonably
+necessary for commentary, does not substitute for the software itself, and
+includes appropriate attribution where practical.
 
-These permissions are personal, limited, non-exclusive, non-transferable, and revocable as provided by this License.
+These permissions are personal, limited, non-exclusive, non-transferable, and
+revocable as provided by this License.
 
-## 2. GitHub Functionality
+2. GITHUB FUNCTIONALITY
 
-If this repository is public on GitHub, you may use GitHub features that GitHub's Terms of Service permit for public repositories, including viewing and forking through GitHub's service.
+If this repository is public on GitHub, you may use GitHub features that GitHub's
+Terms of Service permit for public repositories, including viewing and forking
+through GitHub's service.
 
-Any such fork or copy does not grant you additional rights to use the software outside the permissions expressly stated in this License.
+Any such fork or copy does not grant you additional rights to use the software
+outside the permissions expressly stated in this License.
 
-## 3. Prohibited Uses
+3. PROHIBITED USES
 
 Except with prior written permission from the copyright holder, you may not:
 
-a. copy or incorporate the source code, in whole or in substantial part, into another project, product, service, library, application, or codebase;
+a. Copy or incorporate the source code, in whole or in substantial part, into
+another project, product, service, library, application, or codebase.
 
-b. modify, adapt, translate, port, or create derivative works based on the software for use outside the limited inspection and testing purposes in Section 1;
+b. Modify, adapt, translate, port, or create derivative works based on the
+software for use outside the limited inspection and testing purposes in
+Section 1.
 
-c. redistribute, republish, sublicense, share, or otherwise provide the software or modified versions of it to third parties, whether for free or for payment;
+c. Redistribute, republish, sublicense, share, or otherwise provide the software
+or modified versions of it to third parties, whether for free or for payment.
 
-d. sell, license, rent, lease, monetize, or commercially exploit the software or any modified version of it;
+d. Sell, license, rent, lease, monetize, or commercially exploit the software or
+any modified version of it.
 
-e. host, deploy, operate, or make the software available as a public or private production service;
+e. Host, deploy, operate, or make the software available as a public or private
+production service.
 
-f. offer the software, or a modified version of it, as a SaaS product, API, hosted service, managed service, white-label product, or similar offering;
+f. Offer the software, or a modified version of it, as a SaaS product, API,
+hosted service, managed service, white-label product, or similar offering.
 
-g. use the software internally within a company, organization, or business for operational, production, or commercial purposes;
+g. Use the software internally within a company, organization, or business for
+operational, production, or commercial purposes.
 
-h. use the source code as the basis for a competing product or service;
+h. Use the source code as the basis for a competing product or service.
 
-i. remove, obscure, or alter copyright, ownership, or license notices; or
+i. Remove, obscure, or alter copyright, ownership, or license notices.
 
-j. transfer or sublicense any permission granted under this License.
+j. Transfer or sublicense any permission granted under this License.
 
-For clarity, local execution permitted under Section 1 is allowed only for inspection, testing, research, security review, and privacy verification. It does not authorize personal, organizational, or commercial production use.
+For clarity, local execution permitted under Section 1 is allowed only for
+inspection, testing, research, security review, and privacy verification. It does
+not authorize personal, organizational, or commercial production use.
 
-## 4. No Open-Source License
+4. NO OPEN-SOURCE LICENSE
 
 This License is a proprietary source-available license.
 
-Making the source code publicly visible does not place the software in the public domain and does not grant rights under any open-source or free-software license.
+Making the source code publicly visible does not place the software in the public
+domain and does not grant rights under any open-source or free-software license.
 
-No rights are granted by implication, estoppel, or otherwise beyond those expressly stated in this License.
+No rights are granted by implication, estoppel, or otherwise beyond those
+expressly stated in this License.
 
-## 5. Third-Party Components
+5. THIRD-PARTY COMPONENTS
 
 This License applies only to original material owned by Dunegerb.
 
-Third-party libraries, dependencies, assets, code, trademarks, services, or other materials included in or referenced by the repository remain subject to their own applicable licenses, terms, and ownership rights.
+Third-party libraries, dependencies, assets, code, trademarks, services, or other
+materials included in or referenced by the repository remain subject to their own
+applicable licenses, terms, and ownership rights.
 
-Nothing in this License grants rights in any third-party name, mark, logo, service, or other intellectual property.
+Nothing in this License grants rights in any third-party name, mark, logo, service,
+or other intellectual property.
 
-## 6. Contributions
+6. CONTRIBUTIONS
 
-This repository is published for inspection and transparency and is not offered as an open contribution project.
+This repository is published for inspection and transparency and is not offered as
+an open contribution project.
 
-No right to submit, merge, reuse, or distribute modifications is granted by this License.
+No right to submit, merge, reuse, or distribute modifications is granted by this
+License.
 
-## 7. Permission Requests
+7. PERMISSION REQUESTS
 
-Additional rights may be granted only through prior written authorization from the copyright holder.
+Additional rights may be granted only through prior written authorization from the
+copyright holder.
 
 Licensing and permission inquiries:
 
-**[claude2pdf@proton.me](mailto:claude2pdf@proton.me)**
+[claude2pdf@proton.me](mailto:claude2pdf@proton.me)
 
-## 8. Termination
+8. TERMINATION
 
-Any permission granted under this License terminates automatically if you violate its terms.
+Any permission granted under this License terminates automatically if you violate
+its terms.
 
-Upon termination, you must stop all uses that depended on this License and remove unauthorized copies, deployments, modified versions, and redistributions under your control, except where retention is required by law or independently permitted by applicable law or GitHub's Terms of Service.
+Upon termination, you must stop all uses that depended on this License and remove
+unauthorized copies, deployments, modified versions, and redistributions under
+your control, except where retention is required by law or independently permitted
+by applicable law or GitHub's Terms of Service.
 
-## 9. No Warranty
+9. NO WARRANTY
 
-THE SOFTWARE AND SOURCE CODE ARE PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT, TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW.
+THE SOFTWARE AND SOURCE CODE ARE PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT
+WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES
+OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND
+NON-INFRINGEMENT, TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW.
 
-## 10. Limitation of Liability
+10. LIMITATION OF LIABILITY
 
-TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, DUNEGERB WILL NOT BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, CONSEQUENTIAL, OR OTHER DAMAGES ARISING FROM OR RELATED TO ACCESS TO, INSPECTION OF, TESTING OF, OR USE OF THE SOFTWARE OR SOURCE CODE.
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, DUNEGERB WILL NOT BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, CONSEQUENTIAL, OR OTHER
+DAMAGES ARISING FROM OR RELATED TO ACCESS TO, INSPECTION OF, TESTING OF, OR USE OF
+THE SOFTWARE OR SOURCE CODE.
 
-## 11. Reservation of Rights
+11. RESERVATION OF RIGHTS
 
 All rights not expressly granted by this License are reserved by Dunegerb.
 
-Nothing in this License limits rights or exceptions that cannot lawfully be restricted under applicable law.
+Nothing in this License limits rights or exceptions that cannot lawfully be
+restricted under applicable law.
