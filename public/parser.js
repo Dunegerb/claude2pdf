@@ -195,6 +195,106 @@
     });
   }
 
+  const CLAUDE_SAFE_CLASSES = new Set([
+    'c2p-claude-tool-status',
+    'c2p-claude-muted'
+  ]);
+
+  function replaceInlineTag(el, tagName) {
+    if (!el || !el.parentNode || !el.ownerDocument) return el;
+    const replacement = el.ownerDocument.createElement(tagName);
+    while (el.firstChild) replacement.appendChild(el.firstChild);
+    el.replaceWith(replacement);
+    return replacement;
+  }
+
+  function semanticizeClaudeMarkup(root) {
+    if (!root?.querySelectorAll) return;
+
+    // Claude's rendered UI carries some semantics in utility classes rather than
+    // HTML tags. Convert those classes before the sanitizer strips provider CSS.
+    // This path is intentionally Claude-only so other providers keep their current
+    // parser/rendering behavior untouched.
+    const candidates = Array.from(root.querySelectorAll('span, div, p, small, a')).reverse();
+    candidates.forEach((el) => {
+      if (!root.contains(el)) return;
+      const rawClassName = String(el.getAttribute('class') || '');
+      const rawStyle = String(el.getAttribute('style') || '');
+      if (el.getAttribute('aria-hidden') === 'true' || /(?:^|\s)(?:hidden|sr-only)(?:\s|$)/i.test(rawClassName) || /display\s*:\s*none|visibility\s*:\s*hidden/i.test(rawStyle)) return;
+      const text = String(el.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!text) return;
+      if (el.querySelector?.('.c2p-claude-tool-status, .c2p-claude-muted')) return;
+
+      const className = rawClassName;
+      const style = rawStyle;
+      const tag = String(el.tagName || '').toLowerCase();
+      const hasBlockChild = !!el.querySelector?.('p, div, ul, ol, pre, table, blockquote, h1, h2, h3, h4, h5, h6');
+
+      // Public Claude shares can contain transient hidden copies saying
+      // "Searching the web" even though the completed UI shows "Searched the web".
+      // Canonicalize to the completed UI label and deduplicate it later.
+      const webStatus = text.match(/^(searching|searched) the web(?:\s*[·•-]\s*(\d+\s*(?:sources?|results?)))?$/i);
+      if (webStatus) {
+        el.textContent = `Searched the web${webStatus[2] ? ` · ${webStatus[2]}` : ''}`;
+        el.setAttribute('class', 'c2p-claude-tool-status');
+        return;
+      }
+
+      const browseStatus = text.match(/^(browsing|browsed) the web$/i);
+      if (browseStatus) {
+        el.textContent = 'Browsed the web';
+        el.setAttribute('class', 'c2p-claude-tool-status');
+        return;
+      }
+
+      // Sandbox paths are implementation details emitted by the extraction/tool
+      // layer, not visible conversation prose in Claude. Do not leak them to PDF.
+      if (/^file created successfully\s*:\s*\/mnt\/(?:user-data|data)\//i.test(text)) {
+        el.remove();
+        return;
+      }
+
+      // Preserve Claude's muted tool/action captions before utility classes and
+      // inline color declarations are removed. Restrict this to compact leaves so
+      // normal assistant paragraphs cannot accidentally become muted.
+      const visuallyMuted = /(?:^|\s)(?:text-(?:gray|grey|neutral|zinc|stone|slate)-(?:400|500|600)|text-(?:secondary|tertiary|muted)(?:-foreground)?|text-token-text-secondary|text-text-(?:200|300|400|500)|opacity-(?:50|60|70|75))(?:\s|$)/i.test(className) ||
+        /(?:color\s*:\s*(?:#[6789a-f][0-9a-f]{5}|rgba?\([^)]*,\s*0\.[4-8]\)))/i.test(style);
+      if (text.length <= 300 && !hasBlockChild && visuallyMuted) {
+        el.setAttribute('class', 'c2p-claude-muted');
+      }
+
+      // Some Claude variants encode emphasis only in utility classes.
+      if (tag === 'span' && /(?:^|\s)(?:font-(?:bold|semibold)|font-weight-(?:600|700|800|900))(?:\s|$)/i.test(className)) {
+        replaceInlineTag(el, 'strong');
+        return;
+      }
+      if (tag === 'span' && /(?:^|\s)italic(?:\s|$)/i.test(className)) {
+        replaceInlineTag(el, 'em');
+        return;
+      }
+      if (tag === 'span' && /(?:^|\s)underline(?:\s|$)/i.test(className)) {
+        replaceInlineTag(el, 'u');
+        return;
+      }
+      if (tag === 'span' && /(?:^|\s)(?:line-through|strikethrough)(?:\s|$)/i.test(className)) {
+        replaceInlineTag(el, 's');
+      }
+    });
+  }
+
+  function dedupeClaudeMetadata(root) {
+    if (!root?.querySelectorAll) return;
+    const seen = new Set();
+    Array.from(root.querySelectorAll('.c2p-claude-tool-status')).forEach((el) => {
+      const key = dedupeTextKey(el.textContent || '');
+      if (!key || seen.has(key)) {
+        el.remove();
+        return;
+      }
+      seen.add(key);
+    });
+  }
+
   function sanitizeFragment(nodeOrHTML, options = {}) {
     const doc = document.implementation.createHTMLDocument('sanitize');
     const wrapper = doc.createElement('div');
@@ -209,6 +309,7 @@
     // removing provider UI noise. This prevents rendered math and hidden TeX
     // accessibility layers from being flattened into duplicated plain text.
     normalizeMathNodes(wrapper);
+    if (options.provider === 'claude') semanticizeClaudeMarkup(wrapper);
     removeNoise(wrapper);
 
     wrapper.querySelectorAll('*').forEach((el) => {
@@ -235,6 +336,12 @@
 
       Array.from(el.attributes).forEach((attr) => {
         const name = attr.name.toLowerCase();
+        if (name === 'class' && options.provider === 'claude') {
+          const safeClasses = String(attr.value || '').split(/\s+/).filter(className => CLAUDE_SAFE_CLASSES.has(className));
+          if (safeClasses.length) el.setAttribute('class', safeClasses.join(' '));
+          else el.removeAttribute('class');
+          return;
+        }
         if (name.startsWith('on') || name === 'style' || name === 'class' || name === 'id' || name.startsWith('data-') || name.startsWith('aria-') || name.startsWith('_ng') || name === 'jslog' || name === 'node') {
           el.removeAttribute(attr.name);
           return;
@@ -261,6 +368,9 @@
         'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'thead', 'tbody',
         'tr', 'th', 'td', 'hr', 'a', 'br'
       ]);
+      if (options.provider === 'claude') {
+        ['del', 'ins', 'mark', 'kbd', 'tfoot', 'sup', 'sub'].forEach(tagName => allowed.add(tagName));
+      }
 
       if (!allowed.has(tag)) {
         el.replaceWith(...Array.from(el.childNodes));
@@ -269,8 +379,11 @@
 
     wrapper.querySelectorAll('span').forEach((span) => {
       if (span.classList.contains('c2p-math')) return;
+      if (options.provider === 'claude' && Array.from(span.classList || []).some(className => CLAUDE_SAFE_CLASSES.has(className))) return;
       span.replaceWith(...Array.from(span.childNodes));
     });
+
+    if (options.provider === 'claude') dedupeClaudeMetadata(wrapper);
 
     const html = wrapper.innerHTML
       .replace(/<div>\s*<\/div>/gi, '')
@@ -285,7 +398,7 @@
 
   function makeMessage(role, nodeOrHTML, extra = {}) {
     const rawText = typeof nodeOrHTML === 'string' ? nodeOrHTML.replace(/<[^>]+>/g, ' ') : textOf(nodeOrHTML);
-    const html = sanitizeFragment(nodeOrHTML, { fallbackText: rawText });
+    const html = sanitizeFragment(nodeOrHTML, { fallbackText: rawText, provider: extra.provider || '' });
     const textBucket = document.createElement('div');
     textBucket.innerHTML = html;
     const cleanText = (textBucket.textContent || rawText || '').replace(/\s+/g, ' ').trim();
@@ -446,7 +559,7 @@
       const key = `${role}:${dedupeTextKey(text)}`;
       if (seen.has(key)) return;
       seen.add(key);
-      messages.push(makeMessage(role, content));
+      messages.push(makeMessage(role, content, { provider }));
     });
     return messages;
   }
@@ -478,7 +591,7 @@
       const key = `${role}:${dedupeTextKey(text)}`;
       if (seenMessages.has(key)) return;
       seenMessages.add(key);
-      messages.push(makeMessage(role, `<p>${escapeHTML(text)}</p>`));
+      messages.push(makeMessage(role, `<p>${escapeHTML(text)}</p>`, { provider }));
     }
 
     function walk(value, depth = 0) {
@@ -662,12 +775,95 @@
     return merged;
   }
 
-  function collectNetworkFallbackMessages(doc) {
+  function claudeSemanticRichness(message) {
+    const html = String(message?.html || '');
+    if (!html) return 0;
+    const weights = [
+      [/<(?:strong|b)\b/gi, 8],
+      [/<(?:em|i)\b/gi, 5],
+      [/<h[1-6]\b/gi, 6],
+      [/<(?:ul|ol|li)\b/gi, 4],
+      [/<pre\b/gi, 10],
+      [/<code\b/gi, 5],
+      [/<table\b/gi, 10],
+      [/<blockquote\b/gi, 6],
+      [/class=["'][^"']*c2p-math/gi, 12],
+      [/class=["'][^"']*c2p-claude-/gi, 7]
+    ];
+    return weights.reduce((score, [pattern, weight]) => {
+      const matches = html.match(pattern);
+      return score + (matches ? Math.min(matches.length, 40) * weight : 0);
+    }, 0);
+  }
+
+  function claudeMessageSimilarity(left, right) {
+    if (!left || !right || left.role !== right.role) return 0;
+    const normalize = (value) => dedupeTextKey(value)
+      .replace(/\b(?:searching|searched) the web\b/gi, ' searched web ')
+      .replace(/file created successfully\s*:\s*\/mnt\/[^\s]+/gi, ' ')
+      .replace(/[^a-z0-9\u00c0-\u024f]+/gi, ' ')
+      .trim();
+    const a = normalize(left.text || '');
+    const b = normalize(right.text || '');
+    if (!a || !b) return 0;
+    if (a === b) return 1;
+    const shorter = a.length <= b.length ? a : b;
+    const longer = a.length > b.length ? a : b;
+    if (shorter.length >= 30 && longer.includes(shorter)) return shorter.length / longer.length;
+
+    const tokenSet = (value) => new Set(value.split(/\s+/).filter(token => token.length >= 3));
+    const aTokens = tokenSet(a);
+    const bTokens = tokenSet(b);
+    if (!aTokens.size || !bTokens.size) return 0;
+    let overlap = 0;
+    aTokens.forEach(token => { if (bTokens.has(token)) overlap += 1; });
+    return overlap / Math.min(aTokens.size, bTokens.size);
+  }
+
+  function mergeClaudeMessages(visibleDOM, fallback) {
+    const merged = mergeProviderMessages(visibleDOM, fallback);
+    const visible = Array.from(visibleDOM || []).filter(message =>
+      message && (message.role === 'user' || message.role === 'assistant') && dedupeTextKey(message.text)
+    );
+    if (!visible.length || !merged.length) return merged;
+
+    // For Claude, the rendered DOM is the authoritative representation of what
+    // the user actually sees. Structured/network payloads often contain transient
+    // tool traces (e.g. repeated "Searching the web" and sandbox file paths).
+    // Keep fallback-only turns for coverage, but for matching turns prefer the
+    // visible DOM — especially when it contains richer semantic markup.
+    const used = new Set();
+    return merged.map((message) => {
+      let bestIndex = -1;
+      let bestSimilarity = 0;
+      for (let index = 0; index < visible.length; index += 1) {
+        if (used.has(index)) continue;
+        const similarity = claudeMessageSimilarity(message, visible[index]);
+        if (similarity > bestSimilarity) {
+          bestSimilarity = similarity;
+          bestIndex = index;
+        }
+      }
+      if (bestIndex < 0 || bestSimilarity < 0.62) return message;
+      used.add(bestIndex);
+      const domMessage = visible[bestIndex];
+      const domRichness = claudeSemanticRichness(domMessage);
+      const fallbackRichness = claudeSemanticRichness(message);
+
+      // A close text match means these are the same visible turn. Prefer the DOM
+      // even when the fallback is longer, because the extra text is frequently
+      // hidden tool/runtime data rather than user-visible conversation content.
+      if (bestSimilarity >= 0.78 || domRichness >= fallbackRichness) return domMessage;
+      return message;
+    });
+  }
+
+  function collectNetworkFallbackMessages(doc, provider = '') {
     return Array.from(doc.querySelectorAll('[data-c2p-network-message]')).map((node) => {
       const role = normalizeConversationRole(node.getAttribute('data-message-author-role'));
       const content = node.querySelector('.c2p-network-content') || node;
       if (!role || !textOf(content)) return null;
-      return makeMessage(role, content);
+      return makeMessage(role, content, { provider });
     }).filter(Boolean);
   }
 
@@ -740,7 +936,7 @@
       const finalText = textOf(contentNode);
       if (isClaudeNoise(finalText)) return false;
 
-      const message = makeMessage(role, contentNode);
+      const message = makeMessage(role, contentNode, { provider: 'claude' });
       const key = dedupeTextKey(message.text || finalText);
       if (!key) return false;
 
@@ -852,7 +1048,13 @@
       title: stripCommonTitleNoise(getMeta(doc, 'meta[property="og:title"]') || doc.title || textOf(doc.querySelector('h1'))),
       date: '',
       url: sourceUrl || getMeta(doc, 'link[rel="canonical"]', 'href'),
-      messages: mergeProviderMessages(orderedMessages, mergeProviderMessages(collectNetworkFallbackMessages(doc), collectProviderScriptMessages(doc, htmlText, 'claude')))
+      messages: mergeClaudeMessages(
+        orderedMessages,
+        mergeProviderMessages(
+          collectNetworkFallbackMessages(doc, 'claude'),
+          collectProviderScriptMessages(doc, htmlText, 'claude')
+        )
+      )
     });
   }
 
@@ -1219,6 +1421,140 @@
     .pdf-template-root .thought svg { width: 13px; height: 13px; stroke-width: 1.65; flex: none; transform: translateY(-1px); }
     .pdf-template-root .actions { display: flex; align-items: center; gap: 14px; margin-top: 13px; color: #6f747a; height: 18px; }
     .pdf-template-root .actions svg { width: 16px; height: 16px; stroke-width: 1.55; opacity: .92; flex: none; }
+
+    /* Claude-only fidelity layer. Keep every selector under .provider-claude so
+       ChatGPT, Gemini, Grok and Qwen retain their existing PDF appearance. */
+    .pdf-template-root.provider-claude {
+      --claude-serif: Georgia, "Times New Roman", Times, serif;
+      --claude-ui: Arial, Helvetica, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .pdf-template-root.provider-claude .bubble {
+      font-family: var(--claude-ui);
+      font-weight: 500;
+      line-height: 1.42;
+    }
+    .pdf-template-root.provider-claude .assistant-copy {
+      max-width: 151mm;
+      color: #111;
+      font-family: var(--claude-serif);
+      font-size: 15px;
+      line-height: 1.5;
+      letter-spacing: -.006em;
+    }
+    .pdf-template-root.provider-claude .assistant-copy > :first-child { margin-top: 0; }
+    .pdf-template-root.provider-claude .assistant-copy > :last-child:not(.actions) { margin-bottom: 0; }
+    .pdf-template-root.provider-claude .assistant-copy p { margin: 0 0 11px; }
+    .pdf-template-root.provider-claude .assistant-copy strong,
+    .pdf-template-root.provider-claude .assistant-copy b { font-weight: 700; }
+    .pdf-template-root.provider-claude .assistant-copy em,
+    .pdf-template-root.provider-claude .assistant-copy i { font-style: italic; }
+    .pdf-template-root.provider-claude .assistant-copy u { text-decoration: underline; text-underline-offset: .12em; }
+    .pdf-template-root.provider-claude .assistant-copy s,
+    .pdf-template-root.provider-claude .assistant-copy del { text-decoration: line-through; }
+    .pdf-template-root.provider-claude .assistant-copy mark { background: #fff0a6; color: inherit; padding: 0 .08em; }
+    .pdf-template-root.provider-claude .assistant-copy a {
+      color: inherit;
+      text-decoration: underline;
+      text-decoration-color: rgba(0,0,0,.35);
+      text-underline-offset: .13em;
+    }
+    .pdf-template-root.provider-claude .assistant-copy h1,
+    .pdf-template-root.provider-claude .assistant-copy h2,
+    .pdf-template-root.provider-claude .assistant-copy h3,
+    .pdf-template-root.provider-claude .assistant-copy h4,
+    .pdf-template-root.provider-claude .assistant-copy h5,
+    .pdf-template-root.provider-claude .assistant-copy h6 {
+      font-family: var(--claude-serif);
+      font-weight: 700;
+      color: inherit;
+      page-break-after: avoid;
+      break-after: avoid;
+    }
+    .pdf-template-root.provider-claude .assistant-copy h1 { margin: 22px 0 10px; font-size: 21px; line-height: 1.2; letter-spacing: -.022em; }
+    .pdf-template-root.provider-claude .assistant-copy h2 { margin: 19px 0 9px; font-size: 18px; line-height: 1.23; letter-spacing: -.018em; }
+    .pdf-template-root.provider-claude .assistant-copy h3 { margin: 17px 0 8px; font-size: 16px; line-height: 1.25; letter-spacing: -.012em; }
+    .pdf-template-root.provider-claude .assistant-copy h4,
+    .pdf-template-root.provider-claude .assistant-copy h5,
+    .pdf-template-root.provider-claude .assistant-copy h6 { margin: 15px 0 7px; font-size: 14.5px; line-height: 1.28; }
+    .pdf-template-root.provider-claude .assistant-copy ul,
+    .pdf-template-root.provider-claude .assistant-copy ol { margin: 0 0 12px; padding-left: 24px; }
+    .pdf-template-root.provider-claude .assistant-copy li { margin: 4px 0; padding-left: 1px; }
+    .pdf-template-root.provider-claude .assistant-copy li > p { margin: 0 0 5px; }
+    .pdf-template-root.provider-claude .assistant-copy blockquote {
+      margin: 13px 0;
+      padding: 2px 0 2px 13px;
+      border-left: 3px solid rgba(0,0,0,.18);
+      color: #4e4e4e;
+    }
+    .pdf-template-root.provider-claude .assistant-copy hr { height: 1px; border: 0; background: rgba(0,0,0,.11); margin: 18px 0; }
+    .pdf-template-root.provider-claude .assistant-copy pre {
+      max-width: 100%;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      background: #f6f6f4;
+      border: 1px solid rgba(0,0,0,.065);
+      border-radius: 12px;
+      padding: 12px 13px;
+      font: 12px/1.48 "SF Mono", SFMono-Regular, Consolas, Menlo, monospace;
+      break-inside: auto;
+      page-break-inside: auto;
+      tab-size: 2;
+    }
+    .pdf-template-root.provider-claude .assistant-copy code {
+      font: 12px/1.4 "SF Mono", SFMono-Regular, Consolas, Menlo, monospace;
+      background: rgba(0,0,0,.055);
+      border-radius: 4px;
+      padding: 1px 4px;
+      letter-spacing: 0;
+    }
+    .pdf-template-root.provider-claude .assistant-copy pre code { background: transparent; border-radius: 0; padding: 0; }
+    .pdf-template-root.provider-claude .assistant-copy kbd {
+      font: 11.5px/1.25 "SF Mono", SFMono-Regular, Consolas, Menlo, monospace;
+      border: 1px solid rgba(0,0,0,.18);
+      border-bottom-width: 2px;
+      border-radius: 5px;
+      padding: 1px 5px;
+      background: #fafafa;
+    }
+    .pdf-template-root.provider-claude .assistant-copy sup { font-size: .72em; vertical-align: super; line-height: 0; }
+    .pdf-template-root.provider-claude .assistant-copy sub { font-size: .72em; vertical-align: sub; line-height: 0; }
+    .pdf-template-root.provider-claude .assistant-copy table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 13px 0;
+      font-family: var(--claude-ui);
+      font-size: 11.7px;
+      line-height: 1.42;
+      break-inside: auto;
+      page-break-inside: auto;
+    }
+    .pdf-template-root.provider-claude .assistant-copy thead { display: table-header-group; }
+    .pdf-template-root.provider-claude .assistant-copy th,
+    .pdf-template-root.provider-claude .assistant-copy td { border: 1px solid rgba(0,0,0,.095); padding: 7px 8px; text-align: left; vertical-align: top; }
+    .pdf-template-root.provider-claude .assistant-copy th { background: #f6f6f4; font-weight: 650; }
+    .pdf-template-root.provider-claude .c2p-claude-tool-status,
+    .pdf-template-root.provider-claude .c2p-claude-muted {
+      display: block;
+      font-family: var(--claude-ui) !important;
+      font-weight: 400 !important;
+      font-style: normal !important;
+      letter-spacing: -.005em;
+      color: #777;
+    }
+    .pdf-template-root.provider-claude .c2p-claude-tool-status {
+      margin: 0 0 7px;
+      font-size: 12.2px;
+      line-height: 1.35;
+      color: #737373;
+    }
+    .pdf-template-root.provider-claude .c2p-claude-muted {
+      margin: 7px 0 10px;
+      font-size: 12.5px;
+      line-height: 1.4;
+      color: #7c7c7c;
+    }
+    .pdf-template-root.provider-claude .c2p-math-display { margin: 16px auto 17px; }
+    .pdf-template-root.provider-claude .c2p-math-inline { margin: 0 .09em; }
     @media print { @page { size: A4; margin: 0; } html, body { width: 210mm; background: #fff; } .pdf-template-root { background: #fff; } .pdf-template-root .stack { padding: 0; } .pdf-template-root .sheet { width: 210mm; min-height: 297mm; margin: 0; box-shadow: none; -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
   `;
 
@@ -1227,18 +1563,21 @@
       if (message.role === 'user') {
         const text = message.text || message.html.replace(/<[^>]+>/g, ' ').trim();
         const isSmall = text.length <= 16 && !/[\n\r]/.test(text);
-        const richHTML = sanitizeFragment(message.html, { fallbackText: text });
-        const content = /class="c2p-math(?:\s|")/.test(richHTML) ? richHTML : escapeHTML(text);
+        const richHTML = sanitizeFragment(message.html, { fallbackText: text, provider: conversation.provider });
+        const content = conversation.provider === 'claude'
+          ? (richHTML || escapeHTML(text))
+          : (/class="c2p-math(?:\s|")/.test(richHTML) ? richHTML : escapeHTML(text));
         return `<div class="message user"><div class="bubble${isSmall ? ' small' : ''}">${content}</div></div>`;
       }
       const thought = message.thought ? `<div class="thought">${THOUGHT_ICON}<span>${escapeHTML(message.thought)}</span></div>` : '';
-      return `<div class="message assistant"><div class="assistant-copy">${thought}${sanitizeFragment(message.html, { fallbackText: message.text })}${ACTIONS}</div></div>`;
+      return `<div class="message assistant"><div class="assistant-copy">${thought}${sanitizeFragment(message.html, { fallbackText: message.text, provider: conversation.provider })}${ACTIONS}</div></div>`;
     }).join('\n');
   }
 
   function renderPDFTemplate(conversation) {
     const safe = finalizeConversation(conversation);
-    return `<div class="pdf-template-root"><main class="stack"><section class="sheet"><header class="conversation-meta"><div><div class="title">${escapeHTML(safe.title)}</div><div class="subtitle">${escapeHTML(safe.date)} · ${escapeHTML(safe.provider.toUpperCase())}</div></div></header><div class="chat">${renderMessages(safe)}</div></section></main></div>`;
+    const claudeClass = safe.provider === 'claude' ? ' provider-claude' : '';
+    return `<div class="pdf-template-root${claudeClass}"><main class="stack"><section class="sheet"><header class="conversation-meta"><div><div class="title">${escapeHTML(safe.title)}</div><div class="subtitle">${escapeHTML(safe.date)} · ${escapeHTML(safe.provider.toUpperCase())}</div></div></header><div class="chat">${renderMessages(safe)}</div></section></main></div>`;
   }
 
   function renderPDFStyles() {
