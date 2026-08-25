@@ -18,9 +18,12 @@ If a provider blocks the Railway/datacenter IP, configure either a proxy or a re
 - `BROWSER_WS_ENDPOINT` — optional Puppeteer-compatible remote browser WebSocket endpoint. When set, the app connects instead of launching local Chromium.
 - `DEBUG_EXTRACTION=1` — enables browser console diagnostics. Keep disabled during normal operation.
 - `TRUST_PROXY_HOPS` — defaults to `1`, appropriate for Railway's reverse-proxy setup.
-- `PUPPETEER_PROTOCOL_TIMEOUT_MS` — defaults to `300000` (5 minutes). This is a safety margin for individual CDP calls; the long-Claude collector is split into shorter calls so normal operation should not approach this limit.
-- `CLAUDE_COLLECTION_BUDGET_MS` — defaults to `150000` (2.5 minutes) and bounds the rich-DOM collection pass before structured fallback is allowed to carry the remaining conversation.
-- `CLAUDE_CAPTURE_BATCH_SIZE` — defaults to `24`; limits how many new/richer Claude turns are cloned in one CDP call. Normally leave this unchanged.
+- `PUPPETEER_PROTOCOL_TIMEOUT_MS` — defaults to `300000` (5 minutes). This is a safety margin for individual CDP calls; long-conversation collectors are split into shorter calls so normal operation should not approach this limit.
+- `CLAUDE_COLLECTION_BUDGET_MS` — defaults to `150000` (2.5 minutes) for Claude’s rich-DOM collector.
+- `CLAUDE_CAPTURE_BATCH_SIZE` — defaults to `24`; limits how many new/richer Claude turns are cloned in one CDP call.
+- `PROVIDER_COLLECTION_BUDGET_MS` — defaults to `150000` (2.5 minutes) for ChatGPT, Gemini, Grok, and Qwen.
+- `PROVIDER_CAPTURE_BATCH_SIZE` — defaults to `20`; limits DOM clones per CDP call for ChatGPT, Gemini, Grok, and Qwen.
+- `STREAM_HTML_CHUNK_SIZE` — defaults to `262144` bytes; large HTML results are sent to the browser as bounded NDJSON chunks instead of one giant result line.
 
 Do not commit proxy credentials or browser WebSocket secrets to the repository. Store them as deployment environment variables.
 
@@ -52,3 +55,18 @@ The Claude collector no longer performs the entire scroll/capture/serialization 
 
 Successful and failed extraction logs include `durationMs` for performance monitoring, but still do not log conversation titles, share IDs, or conversation text.
 
+
+
+## Very large conversations across all providers (August 2026)
+
+Long-conversation hardening now applies to every supported provider:
+
+- **Claude** keeps its dedicated rich collector, bounded cloning, virtualization detection, reverse pass, and chunked CDP serialization.
+- **ChatGPT** no longer performs the entire scroll/capture/final serialization inside one `page.evaluate()`. Virtualized turn containers are accumulated incrementally and final HTML crosses CDP in bounded chunks.
+- **Gemini** captures `share-turn-viewer` incrementally. Prompt text is used as a stable turn key while the response hydrates, preventing a partially rendered response from becoming a duplicate turn.
+- **Qwen** captures `.qwen-chat-message` incrementally and wraps the result back into the existing `.share-layout-messages` parser contract.
+- **Grok** now has a dedicated long-conversation collector instead of relying only on generic scrolling followed by `page.content()`. User/assistant nodes are accumulated across virtualized windows.
+- For every provider, if a protocol timeout occurs after useful structured network messages were already captured, extraction can fall back to that structured conversation without immediately asking Chrome to serialize the giant live page again.
+- Large NDJSON results are streamed as `result_start` + bounded `html_chunk` records + `result_end`, with Node stream backpressure respected. The regular JSON API remains unchanged.
+
+The loader reconstructs those chunks only inside the same same-origin extraction response, then passes the complete HTML to the existing provider parser. No new polling endpoint, shared progress store, WebSocket channel, or cross-user state is introduced.

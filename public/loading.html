@@ -696,25 +696,51 @@ clean(payload) {
         const decoder = new TextDecoder();
         let buffer = '';
         let result = null;
+        let chunkedResult = null;
+        let htmlChunks = [];
+
+        const consumeEvent = (event) => {
+          if (!event) return;
+          if (event.type === 'progress') {
+            enterStage(event.stage, event);
+            return;
+          }
+          if (event.type === 'result') {
+            result = event;
+            chunkedResult = null;
+            htmlChunks = [];
+            return;
+          }
+          if (event.type === 'result_start' && event.htmlChunked) {
+            const { type, htmlChunked, totalChunks, ...metadata } = event;
+            chunkedResult = metadata;
+            htmlChunks = [];
+            return;
+          }
+          if (event.type === 'html_chunk' && chunkedResult) {
+            htmlChunks.push(String(event.data || ''));
+            return;
+          }
+          if (event.type === 'result_end' && chunkedResult) {
+            result = { ...chunkedResult, html: htmlChunks.join('') };
+            chunkedResult = null;
+            htmlChunks = [];
+          }
+        };
+
         while (true) {
           const { value, done } = await reader.read();
           buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-          for (const line of lines) {
+          let newlineIndex;
+          while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+            const line = buffer.slice(0, newlineIndex);
+            buffer = buffer.slice(newlineIndex + 1);
             if (!line.trim()) continue;
-            const event = parseJSONLine(line);
-            if (!event) continue;
-            if (event.type === 'progress') enterStage(event.stage, event);
-            if (event.type === 'result') result = event;
+            consumeEvent(parseJSONLine(line));
           }
           if (done) break;
         }
-        if (buffer.trim()) {
-          const event = parseJSONLine(buffer);
-          if (event?.type === 'progress') enterStage(event.stage, event);
-          if (event?.type === 'result') result = event;
-        }
+        if (buffer.trim()) consumeEvent(parseJSONLine(buffer));
         if (!result) return { ok: false, status: 500, data: { success: false, error: 'The extraction stream ended before a result was returned.' } };
         return { ok: result.status >= 200 && result.status < 300 && result.success === true, status: result.status || 500, data: result };
       }

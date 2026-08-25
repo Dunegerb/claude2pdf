@@ -29,12 +29,15 @@ function boundedEnvInt(name, fallback, min, max) {
 }
 
 // Puppeteer's default protocol timeout is 180s. Long public-share pages can make a
-// single CDP serialization expensive, so keep a larger safety margin. The Claude
-// collector below is also deliberately split into short CDP calls so this is a
-// fallback, not the primary long-conversation strategy.
+// single CDP serialization expensive, so keep a larger safety margin. All long-
+// conversation collectors below are deliberately split into short CDP calls so
+// this is a fallback, not the primary long-conversation strategy.
 const PUPPETEER_PROTOCOL_TIMEOUT_MS = boundedEnvInt('PUPPETEER_PROTOCOL_TIMEOUT_MS', 300000, 60000, 600000);
 const CLAUDE_COLLECTION_BUDGET_MS = boundedEnvInt('CLAUDE_COLLECTION_BUDGET_MS', 150000, 30000, 300000);
 const CLAUDE_CAPTURE_BATCH_SIZE = boundedEnvInt('CLAUDE_CAPTURE_BATCH_SIZE', 24, 4, 64);
+const PROVIDER_COLLECTION_BUDGET_MS = boundedEnvInt('PROVIDER_COLLECTION_BUDGET_MS', 150000, 30000, 300000);
+const PROVIDER_CAPTURE_BATCH_SIZE = boundedEnvInt('PROVIDER_CAPTURE_BATCH_SIZE', 20, 4, 64);
+const STREAM_HTML_CHUNK_SIZE = boundedEnvInt('STREAM_HTML_CHUNK_SIZE', 262144, 65536, 1048576);
 
 app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS || 1));
 
@@ -96,227 +99,485 @@ const limiter = rateLimit({
     message: { error: "Muitas requisições. Tente novamente mais tarde." }
 });
 
-async function collectChatGPTHTML(page, url) {
-    // ChatGPT virtualizes long conversations. A single page.content() snapshot can
-    // therefore contain only the currently mounted slice. Walk the real scroll root,
-    // keep snapshots of every turn we see, and update a turn when hydration later
-    // replaces a placeholder/partial response with richer content.
-    return await page.evaluate(async (sourceUrl) => {
+async function collectChunkedProviderHTML(page, provider, url, { expectedMessages = 0 } = {}) {
+    // ChatGPT, Gemini, Grok, and Qwen can all expose very large public chats. Keep
+    // expensive DOM work inside many short CDP calls instead of one long
+    // Runtime.callFunctionOn. State lives only inside this page/request and is
+    // deleted immediately after serialization.
+    const STATE_KEY = `__c2p${provider.replace(/[^a-z0-9]/gi, '')}CollectorV1`;
+    const startedAt = Date.now();
+
+    await page.evaluate(({ stateKey, providerName, sourceUrl, captureBatchSize }) => {
+        const normalize = (value) => String(value || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
         const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-        const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim();
 
         function getScrollTarget() {
             const explicit = document.querySelector('[data-scroll-root]');
             if (explicit) return explicit;
-            const candidates = [document.scrollingElement, document.documentElement, document.body,
-                ...Array.from(document.querySelectorAll('main, [class*="overflow-y-auto"], [class*="overflow-y-scroll"], [class*="scroll"]'))];
+            const candidates = [
+                document.scrollingElement,
+                document.documentElement,
+                document.body,
+                ...Array.from(document.querySelectorAll('main, [class*="overflow-y-auto"], [class*="overflow-y-scroll"], [class*="scroll"]'))
+            ].filter(Boolean);
             return candidates
-                .filter(Boolean)
-                .map((el) => ({ el, delta: (el.scrollHeight || 0) - (el.clientHeight || 0) }))
+                .map((el) => ({ el, delta: Math.max(0, (el.scrollHeight || 0) - (el.clientHeight || 0)) }))
                 .sort((a, b) => b.delta - a.delta)[0]?.el || document.scrollingElement || document.documentElement;
+        }
+
+        function uniqueOutermost(nodes) {
+            const set = new Set(nodes.filter(Boolean));
+            return Array.from(set).filter((node) => {
+                let parent = node.parentElement;
+                while (parent) {
+                    if (set.has(parent)) return false;
+                    parent = parent.parentElement;
+                }
+                return true;
+            });
+        }
+
+        function providerNodes() {
+            if (providerName === 'chatgpt') {
+                const explicit = Array.from(document.querySelectorAll('section[data-turn], article[data-turn], [data-testid^="conversation-turn-"]'));
+                if (explicit.length) return uniqueOutermost(explicit);
+                return uniqueOutermost(Array.from(document.querySelectorAll('[data-message-author-role="user"], [data-message-author-role="assistant"]')));
+            }
+            if (providerName === 'gemini') {
+                return uniqueOutermost(Array.from(document.querySelectorAll('share-viewer share-turn-viewer, .share-viewer share-turn-viewer, share-turn-viewer, .share-turn-viewer')));
+            }
+            if (providerName === 'qwen') {
+                const exact = Array.from(document.querySelectorAll('.share-layout-messages .qwen-chat-message'));
+                if (exact.length) return uniqueOutermost(exact);
+                return uniqueOutermost(Array.from(document.querySelectorAll('.share-layout-messages [data-message-author-role="user"], .share-layout-messages [data-message-author-role="assistant"]')));
+            }
+            if (providerName === 'grok') {
+                return uniqueOutermost(Array.from(document.querySelectorAll('[data-testid="user-message"], [data-testid="assistant-message"]')));
+            }
+            return [];
+        }
+
+        function roleFor(node) {
+            if (providerName === 'gemini') return 'pair';
+            const value = [
+                node?.getAttribute?.('data-turn'),
+                node?.getAttribute?.('data-message-author-role'),
+                node?.getAttribute?.('data-testid'),
+                node?.className
+            ].filter(Boolean).join(' ');
+            if (/user/i.test(value)) return 'user';
+            if (/assistant|bot|model|response/i.test(value)) return 'assistant';
+            return '';
+        }
+
+        function numberFromNode(node) {
+            const values = [
+                node?.getAttribute?.('data-turn-index'),
+                node?.getAttribute?.('data-index'),
+                node?.getAttribute?.('data-message-index'),
+                node?.getAttribute?.('aria-posinset'),
+                node?.getAttribute?.('data-testid'),
+                node?.id
+            ].filter(Boolean).join(' ');
+            const match = values.match(/conversation-turn-(\d+)|(?:turn|message|index)[-_]?(\d+)|\b(\d+)\b/i);
+            const numeric = match ? Number(match[1] || match[2] || match[3]) : NaN;
+            return Number.isFinite(numeric) ? numeric : null;
+        }
+
+        function smallHash(value) {
+            const text = String(value || '');
+            let hash = 2166136261;
+            for (let i = 0; i < text.length; i += 1) {
+                hash ^= text.charCodeAt(i);
+                hash = Math.imul(hash, 16777619);
+            }
+            return (hash >>> 0).toString(36);
+        }
+
+        function stableBaseKey(node, role, numericOrder) {
+            const attrNames = [
+                'data-turn-id', 'data-turn-id-container', 'data-message-id', 'data-message-key',
+                'data-testid', 'data-id', 'data-key', 'id'
+            ];
+            for (const attr of attrNames) {
+                const value = normalize(node?.getAttribute?.(attr));
+                if (value && !/^(user-message|assistant-message)$/i.test(value)) return `id:0:${attr}:${value}`;
+            }
+
+            // Some UIs put a message UUID one wrapper above the visible role node.
+            // Only trust explicitly message-scoped ancestor attributes; a generic
+            // parent id/testid could be shared by the whole thread and collapse a
+            // virtualized conversation into the same keys.
+            const ancestorAttrs = ['data-turn-id', 'data-turn-id-container', 'data-message-id', 'data-message-key'];
+            let candidate = node?.parentElement;
+            for (let depth = 1; candidate && depth < 4; depth += 1, candidate = candidate.parentElement) {
+                for (const attr of ancestorAttrs) {
+                    const value = normalize(candidate?.getAttribute?.(attr));
+                    if (value) return `id:${depth}:${attr}:${value}`;
+                }
+            }
+
+            // Gemini wraps a prompt + response in one turn. The prompt is stable while
+            // the response hydrates, so key that pair from the prompt when possible.
+            if (providerName === 'gemini') {
+                const prompt = node?.querySelector?.('user-query .query-text, user-query-content .query-text, .query-text, .query-text-line');
+                const promptText = normalize(prompt?.textContent);
+                if (promptText) {
+                    const sample = `${promptText.slice(0, 520)}|${promptText.slice(-220)}|${promptText.length}`;
+                    return `gemini-prompt:${smallHash(sample)}:${promptText.length}${Number.isFinite(numericOrder) ? `:${numericOrder}` : ''}`;
+                }
+            }
+
+            const text = normalize(node?.textContent);
+            const sample = `${text.slice(0, 520)}|${text.slice(-220)}|${text.length}`;
+            return `txt:${role || 'turn'}:${smallHash(sample)}:${text.length}${Number.isFinite(numericOrder) ? `:${numericOrder}` : ''}`;
         }
 
         function cleanClone(node) {
             const clone = node.cloneNode(true);
-            clone.querySelectorAll([
+            const common = [
                 'script', 'style', 'noscript', 'template', 'input', 'textarea', 'select',
                 'nav', 'footer', 'aside', 'form', 'iframe', 'canvas', 'audio', 'video',
-                '[aria-hidden="true"]', '.sr-only', '.hidden',
-                '[class*="copy-button"]', '[class*="popover"]', '[class*="tooltip"]',
-                '[data-testid*="action"]', '[data-testid*="copy"]'
-            ].join(',')).forEach(el => el.remove());
-            Array.from(clone.querySelectorAll('button')).forEach((button) => {
-                if (!/thought for/i.test(normalize(button.textContent))) button.remove();
-            });
+                '[aria-hidden="true"]', '.sr-only', '.hidden', '[class*="copy-button"]',
+                '[class*="popover"]', '[class*="tooltip"]', '[data-testid*="action"]',
+                '[data-testid*="copy"]'
+            ];
+            const extra = providerName === 'gemini'
+                ? ['button', '.luminous-actions-container', '.link-action-buttons', '.response-container-header', '.response-container-footer', '[data-test-id="prompt-copy-button"]', '[data-test-id="report-link"]']
+                : providerName === 'qwen'
+                    ? ['button', 'svg', '[role="button"]', '.message-hoc-container', '.user-message-footer', '.response-message-footer']
+                    : [];
+            clone.querySelectorAll([...common, ...extra].join(',')).forEach(el => el.remove());
+
+            if (providerName === 'chatgpt' || providerName === 'grok') {
+                Array.from(clone.querySelectorAll('button')).forEach((button) => {
+                    const label = normalize(`${button.getAttribute('aria-label') || ''} ${button.textContent || ''}`);
+                    const keepThought = /thought for|thinking|reasoning/i.test(label) || !!button.closest?.('.thinking-container');
+                    if (!keepThought) button.remove();
+                });
+            }
             return clone;
         }
 
-        function roleFor(node) {
-            const explicit = node.getAttribute('data-turn') || node.getAttribute('data-message-author-role') ||
-                node.querySelector('[data-message-author-role]')?.getAttribute('data-message-author-role') || '';
-            if (/user/i.test(explicit)) return 'user';
-            if (/assistant/i.test(explicit)) return 'assistant';
-            return '';
-        }
+        const state = {
+            provider: providerName,
+            sourceUrl,
+            target: getScrollTarget(),
+            turns: new Map(),
+            scanEntries: [],
+            scanOccurrences: new Map(),
+            sequence: 0,
+            maxMounted: 0,
+            minMounted: Number.POSITIVE_INFINITY,
+            batchSize: captureBatchSize,
+            maxObservedTop: 0,
 
-        function orderFor(node, fallback) {
-            const values = [
-                node.getAttribute('data-turn-index'),
-                node.getAttribute('data-index'),
-                node.getAttribute('data-testid'),
-                node.id
-            ].filter(Boolean).join(' ');
-            const match = values.match(/conversation-turn-(\d+)|(?:turn|message)[-_]?(\d+)/i);
-            const numeric = match ? Number(match[1] || match[2]) : NaN;
-            return Number.isFinite(numeric) ? numeric : fallback;
-        }
+            ensureTarget() {
+                if (!this.target || !this.target.isConnected) this.target = getScrollTarget();
+                return this.target || document.scrollingElement || document.documentElement;
+            },
 
-        function turnKey(node, role, fallback) {
-            return node.getAttribute('data-turn-id') ||
-                node.getAttribute('data-turn-id-container') ||
-                node.getAttribute('data-testid') ||
-                node.id ||
-                `${role}:${normalize(node.textContent).slice(0, 260)}:${fallback}`;
-        }
+            metrics(extra = {}) {
+                const target = this.ensureTarget();
+                const top = target?.scrollTop || window.scrollY || 0;
+                const height = target?.scrollHeight || document.documentElement.scrollHeight || 0;
+                const client = target?.clientHeight || window.innerHeight || 0;
+                this.maxObservedTop = Math.max(this.maxObservedTop, top);
+                return {
+                    collected: this.turns.size,
+                    maxMounted: this.maxMounted,
+                    minMounted: Number.isFinite(this.minMounted) ? this.minMounted : 0,
+                    top,
+                    height,
+                    client,
+                    maxTop: Math.max(0, height - client),
+                    ...extra
+                };
+            },
 
-        const turns = new Map();
-        let sequence = 0;
-        let totalTextLength = 0;
+            clickExpanders() {
+                let selector = '';
+                let pattern = null;
+                if (this.provider === 'chatgpt') {
+                    selector = '#thread button, main button';
+                    pattern = /(show more|see more|load more|continue reading|expand response|expand text)/i;
+                } else if (this.provider === 'gemini') {
+                    selector = '[data-test-id="luminous-expand-button"], button[aria-label="Expand"]';
+                    pattern = /.*/;
+                }
+                if (!selector) return 0;
+                let clicked = 0;
+                Array.from(document.querySelectorAll(selector)).forEach((button) => {
+                    const label = normalize(`${button.getAttribute('aria-label') || ''} ${button.textContent || ''}`);
+                    if (!pattern.test(label)) return;
+                    if (/log in|sign up|continue chat|continue conversation/i.test(label)) return;
+                    try { button.click(); clicked += 1; } catch (_) {}
+                });
+                return clicked;
+            },
 
-        function turnNodes() {
-            const explicit = Array.from(document.querySelectorAll([
-                'section[data-turn]', 'article[data-turn]',
-                '[data-testid^="conversation-turn-"]'
-            ].join(',')));
-            if (explicit.length) return [...new Set(explicit)];
+            beginScan() {
+                this.clickExpanders();
+                const nodes = providerNodes();
+                this.maxMounted = Math.max(this.maxMounted, nodes.length);
+                this.minMounted = Math.min(this.minMounted, nodes.length);
 
-            // Fallback for UI variants that expose only role wrappers.
-            return Array.from(document.querySelectorAll('[data-message-author-role]')).filter((node) => {
-                const parentRole = node.parentElement?.closest?.('[data-message-author-role]');
-                return !parentRole;
-            });
-        }
+                this.scanOccurrences = new Map();
+                this.scanEntries = nodes.map((node) => ({
+                    node,
+                    role: roleFor(node),
+                    orderHint: numberFromNode(node)
+                }));
+                return { total: this.scanEntries.length, ...this.metrics() };
+            },
 
-        function capture() {
-            let changed = 0;
-            turnNodes().forEach((node) => {
-                const role = roleFor(node);
-                const text = normalize(node.textContent);
-                if (!role || !text) return;
+            captureBatch(cursor = 0, maxClones = this.batchSize) {
+                const start = Math.max(0, Number(cursor) || 0);
+                const limit = Math.max(1, Math.min(64, Number(maxClones) || this.batchSize));
+                const end = Math.min(this.scanEntries.length, start + limit);
+                let changed = 0;
 
-                const observed = sequence++;
-                const key = turnKey(node, role, observed);
-                const clone = cleanClone(node);
-                const html = clone.outerHTML;
-                const textLength = text.length;
-                const existing = turns.get(key);
+                for (let index = start; index < end; index += 1) {
+                    const entry = this.scanEntries[index];
+                    const node = entry?.node;
+                    if (!node?.isConnected) continue;
+                    const text = normalize(node.textContent);
+                    if (!text) continue;
+                    const base = stableBaseKey(node, entry.role, entry.orderHint);
+                    const occurrence = this.scanOccurrences.get(base) || 0;
+                    this.scanOccurrences.set(base, occurrence + 1);
+                    const key = `${base}:occ:${occurrence}`;
+                    const clone = cleanClone(node);
+                    const html = clone.outerHTML;
+                    if (!html) continue;
 
-                if (!existing) {
-                    turns.set(key, { html, role, textLength, htmlLength: html.length, order: orderFor(node, observed), firstSeen: observed });
-                    totalTextLength += textLength;
-                    changed += 1;
-                    return;
+                    const existing = this.turns.get(key);
+                    if (!existing) {
+                        const firstSeen = this.sequence++;
+                        this.turns.set(key, {
+                            role: entry.role,
+                            html,
+                            textLength: text.length,
+                            htmlLength: html.length,
+                            order: entry.orderHint ?? firstSeen,
+                            firstSeen
+                        });
+                        changed += 1;
+                        continue;
+                    }
+
+                    if (text.length > existing.textLength || html.length > existing.htmlLength * 1.06) {
+                        existing.html = html;
+                        existing.textLength = Math.max(existing.textLength, text.length);
+                        existing.htmlLength = Math.max(existing.htmlLength, html.length);
+                        changed += 1;
+                    }
                 }
 
-                // Hydration/streaming can make an already-seen turn substantially richer.
-                if (textLength > existing.textLength || html.length > existing.htmlLength * 1.08) {
-                    totalTextLength += Math.max(0, textLength - existing.textLength);
-                    existing.html = html;
-                    existing.textLength = Math.max(existing.textLength, textLength);
-                    existing.htmlLength = Math.max(existing.htmlLength, html.length);
-                    changed += 1;
+                return { next: end, total: this.scanEntries.length, changed, ...this.metrics() };
+            },
+
+            async scrollTo(y, waitMs = 120) {
+                const target = this.ensureTarget();
+                const requested = Math.max(0, Number(y) || 0);
+                try { target.scrollTo?.(0, requested); } catch (_) { window.scrollTo(0, requested); }
+                if (waitMs > 0) await sleep(waitMs);
+                return this.metrics();
+            },
+
+            async scrollDown(waitMs = 150) {
+                const target = this.ensureTarget();
+                const beforeTop = target?.scrollTop || window.scrollY || 0;
+                const client = target?.clientHeight || window.innerHeight || 900;
+                const step = Math.max(500, Math.floor(client * 0.82));
+                try { target.scrollBy?.(0, step); } catch (_) { window.scrollBy(0, step); }
+                if (waitMs > 0) await sleep(waitMs);
+                const result = this.metrics({ beforeTop, step });
+                result.atBottom = result.top >= result.maxTop - 18 || (result.top === beforeTop && result.maxTop <= beforeTop + 18);
+                return result;
+            },
+
+            prepareFinal() {
+                this.finalTurns = Array.from(this.turns.values()).sort((a, b) => {
+                    if (a.order === b.order) return a.firstSeen - b.firstSeen;
+                    return a.order - b.order;
+                });
+                const geminiTitle = document.querySelector('share-viewer .headline strong, .share-viewer .headline strong')?.textContent?.trim() || '';
+                const qwenTitle = document.querySelector('.share-layout-title')?.textContent?.trim() || '';
+                const date = this.provider === 'gemini'
+                    ? document.querySelector('share-viewer .publish-time, .share-viewer .publish-time')?.textContent?.trim() || ''
+                    : this.provider === 'qwen'
+                        ? document.querySelector('.share-layout-date')?.textContent?.trim() || ''
+                        : '';
+                return {
+                    count: this.finalTurns.length,
+                    title: geminiTitle || qwenTitle || document.title || '',
+                    canonical: document.querySelector('link[rel="canonical"]')?.getAttribute('href') || this.sourceUrl || '',
+                    ogTitle: document.querySelector('meta[property="og:title"]')?.getAttribute('content') || '',
+                    ogDescription: document.querySelector('meta[property="og:description"]')?.getAttribute('content') || '',
+                    date,
+                    lang: document.documentElement.lang || 'en'
+                };
+            },
+
+            readFinalChunk(offset = 0, maxItems = 10, maxChars = 1400000) {
+                const source = Array.isArray(this.finalTurns) ? this.finalTurns : [];
+                const items = [];
+                let chars = 0;
+                let index = Math.max(0, Number(offset) || 0);
+                const itemLimit = Math.max(1, Math.min(24, Number(maxItems) || 10));
+                const charLimit = Math.max(100000, Math.min(2500000, Number(maxChars) || 1400000));
+
+                while (index < source.length && items.length < itemLimit) {
+                    const turn = source[index];
+                    const size = String(turn?.html || '').length;
+                    if (items.length && chars + size > charLimit) break;
+                    items.push({ role: turn.role, html: turn.html });
+                    chars += size;
+                    index += 1;
+                    if (chars >= charLimit) break;
                 }
-            });
-            return { count: turns.size, textLength: totalTextLength, changed };
-        }
-
-        function clickExpansionButtons() {
-            const buttons = Array.from(document.querySelectorAll('#thread button, main button'));
-            let clicked = 0;
-            buttons.forEach((button) => {
-                const label = normalize(`${button.getAttribute('aria-label') || ''} ${button.textContent || ''}`);
-                if (!/(show more|see more|load more|continue reading|expand response|expand text)/i.test(label)) return;
-                if (/log in|sign up|continue chat|continue conversation/i.test(label)) return;
-                try { button.click(); clicked += 1; } catch (_) {}
-            });
-            return clicked;
-        }
-
-        const target = getScrollTarget();
-        const viewport = Math.max(650, target.clientHeight || window.innerHeight || 900);
-        const stepSize = Math.max(520, Math.floor(viewport * 0.82));
-        const maxSteps = 120;
-        let stableBottomCycles = 0;
-        let previousSignature = '';
-
-        try { target.scrollTo?.(0, 0); } catch (_) { window.scrollTo(0, 0); }
-        await sleep(900);
-        clickExpansionButtons();
-        capture();
-
-        for (let i = 0; i < maxSteps; i += 1) {
-            if (i % 4 === 0) clickExpansionButtons();
-            const beforeTop = target.scrollTop || window.scrollY || 0;
-            const beforeHeight = target.scrollHeight || document.documentElement.scrollHeight || 0;
-
-            try { target.scrollBy?.(0, stepSize); } catch (_) { window.scrollBy(0, stepSize); }
-            await sleep(360);
-            let metrics = capture();
-
-            let afterTop = target.scrollTop || window.scrollY || 0;
-            let afterHeight = target.scrollHeight || document.documentElement.scrollHeight || 0;
-            let maxTop = Math.max(0, afterHeight - (target.clientHeight || window.innerHeight || 0));
-            let atBottom = afterTop >= maxTop - 16 || (afterTop === beforeTop && afterHeight <= beforeHeight);
-
-            if (atBottom) {
-                // Lazy hydration at the bottom often takes longer than one animation frame.
-                await sleep(900);
-                clickExpansionButtons();
-                metrics = capture();
-
-                try {
-                    target.scrollBy?.(0, -Math.min(320, Math.floor(stepSize / 3)));
-                    await sleep(180);
-                    target.scrollTo?.(0, target.scrollHeight || 0);
-                } catch (_) {
-                    window.scrollBy(0, -260);
-                    await sleep(180);
-                    window.scrollTo(0, document.documentElement.scrollHeight || 0);
-                }
-                await sleep(520);
-                metrics = capture();
-
-                afterTop = target.scrollTop || window.scrollY || 0;
-                afterHeight = target.scrollHeight || document.documentElement.scrollHeight || 0;
-                maxTop = Math.max(0, afterHeight - (target.clientHeight || window.innerHeight || 0));
-                const signature = `${metrics.count}:${metrics.textLength}:${afterHeight}:${Math.round(afterTop)}`;
-                if (signature === previousSignature && afterTop >= maxTop - 20) stableBottomCycles += 1;
-                else stableBottomCycles = 0;
-                previousSignature = signature;
-                if (stableBottomCycles >= 4) break;
-            } else {
-                stableBottomCycles = 0;
-                previousSignature = `${metrics.count}:${metrics.textLength}:${afterHeight}:${Math.round(afterTop)}`;
+                return { items, next: index, total: source.length };
             }
+        };
+
+        window[stateKey] = state;
+    }, { stateKey: STATE_KEY, providerName: provider, sourceUrl: url, captureBatchSize: PROVIDER_CAPTURE_BATCH_SIZE });
+
+    const callCollector = (method, ...args) => page.evaluate(({ stateKey, method, args }) => {
+        const collector = window[stateKey];
+        if (!collector || typeof collector[method] !== 'function') throw new Error('Provider collector state was lost.');
+        return collector[method](...args);
+    }, { stateKey: STATE_KEY, method, args });
+
+    const drainCurrentPosition = async (maxRounds = 96) => {
+        const scan = await callCollector('beginScan');
+        let cursor = 0;
+        let metrics = scan;
+        for (let round = 0; cursor < (scan?.total || 0) && round < maxRounds; round += 1) {
+            const batch = await callCollector('captureBatch', cursor, PROVIDER_CAPTURE_BATCH_SIZE);
+            if (!batch || batch.next <= cursor) break;
+            cursor = batch.next;
+            metrics = batch;
+            if (Date.now() - startedAt >= PROVIDER_COLLECTION_BUDGET_MS) break;
+        }
+        return metrics;
+    };
+
+    try {
+        await callCollector('scrollTo', 0, 220);
+        let metrics = await drainCurrentPosition();
+        if (!metrics) return '';
+
+        const expected = Math.max(0, Number(expectedMessages) || 0);
+        let likelyFullyMounted = metrics.maxTop <= 20;
+
+        if (!likelyFullyMounted) {
+            // Probe the bottom once before deciding whether a full viewport walk is
+            // necessary. If new turn keys appear there, the provider is virtualizing
+            // or lazy-mounting the conversation and we must walk the range. If the
+            // exact same set remains mounted, rescanning every viewport is wasted work.
+            const initialCollected = metrics.collected;
+            const initialMounted = metrics.maxMounted;
+            await callCollector('scrollTo', metrics.maxTop, provider === 'gemini' ? 520 : 360);
+            const bottomMetrics = await drainCurrentPosition() || metrics;
+            const addedAtBottom = bottomMetrics.collected > initialCollected;
+            const expectedCovered = expected > 0 && bottomMetrics.collected >= Math.max(2, Math.floor(expected * 0.82));
+            const sameMountedSet = !addedAtBottom && bottomMetrics.maxMounted === initialMounted;
+            likelyFullyMounted = !addedAtBottom && (expectedCovered || sameMountedSet);
+
+            await callCollector('scrollTo', 0, 160);
+            metrics = await drainCurrentPosition() || bottomMetrics;
         }
 
-        // One reverse pass catches virtualized turns that may have been replaced while
-        // later content was loading and lets us refresh richer copies of earlier turns.
-        const bottom = Math.max(0, (target.scrollHeight || document.documentElement.scrollHeight || 0) - (target.clientHeight || window.innerHeight || 0));
-        for (let pos = bottom; pos > 0; pos -= Math.floor(stepSize * 1.15)) {
-            try { target.scrollTo?.(0, Math.max(0, pos)); } catch (_) { window.scrollTo(0, Math.max(0, pos)); }
-            await sleep(150);
-            capture();
+        if (!likelyFullyMounted) {
+            let stableBottom = 0;
+            let previousSignature = '';
+            const maxForwardSteps = 420;
+            const stepWait = provider === 'gemini' ? 260 : (provider === 'chatgpt' ? 220 : 180);
+
+            for (let i = 0; i < maxForwardSteps && Date.now() - startedAt < PROVIDER_COLLECTION_BUDGET_MS; i += 1) {
+                const moved = await callCollector('scrollDown', stepWait);
+                metrics = await drainCurrentPosition(64) || moved;
+                const signature = `${metrics.collected}:${metrics.height}:${Math.round(metrics.top)}`;
+                if (moved.atBottom && signature === previousSignature) stableBottom += 1;
+                else stableBottom = 0;
+                previousSignature = signature;
+
+                if (moved.atBottom && stableBottom === 0) {
+                    await callCollector('scrollTo', moved.maxTop, provider === 'gemini' ? 600 : 420);
+                    metrics = await drainCurrentPosition(64) || metrics;
+                }
+                if (stableBottom >= 2) break;
+            }
+
+            // A reverse pass matters only when the number collected is materially
+            // larger than the mounted window, which signals DOM virtualization.
+            const virtualized = metrics && metrics.maxMounted > 0 &&
+                metrics.collected > Math.max(metrics.maxMounted + 6, Math.floor(metrics.maxMounted * 1.25));
+            if (virtualized && Date.now() - startedAt < PROVIDER_COLLECTION_BUDGET_MS) {
+                const reverseStep = Math.max(520, Math.floor((metrics.client || 900) * 0.95));
+                let reverseRounds = 0;
+                for (let pos = metrics.maxTop; pos > 0 && reverseRounds < 180 && Date.now() - startedAt < PROVIDER_COLLECTION_BUDGET_MS; pos -= reverseStep) {
+                    reverseRounds += 1;
+                    await callCollector('scrollTo', pos, 100);
+                    metrics = await drainCurrentPosition(48) || metrics;
+                }
+            }
+
+            await callCollector('scrollTo', 0, 160);
+            await drainCurrentPosition(48);
         }
-        try { target.scrollTo?.(0, 0); } catch (_) { window.scrollTo(0, 0); }
-        await sleep(300);
-        clickExpansionButtons();
-        capture();
 
-        // Revisit the bottom once more: a last assistant response can mount only after
-        // the page has completed the previous lazy-load cycle.
-        try { target.scrollTo?.(0, target.scrollHeight || 0); } catch (_) { window.scrollTo(0, document.documentElement.scrollHeight || 0); }
-        await sleep(900);
-        clickExpansionButtons();
-        capture();
+        const meta = await callCollector('prepareFinal');
+        if (!meta?.count) return '';
 
-        const title = document.title || '';
-        const canonical = document.querySelector('link[rel="canonical"]')?.getAttribute('href') || sourceUrl || '';
-        const ogTitle = document.querySelector('meta[property="og:title"]')?.getAttribute('content') || '';
-        const ogDescription = document.querySelector('meta[property="og:description"]')?.getAttribute('content') || '';
-        const escapeAttr = (value) => String(value || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+        const chunks = [];
+        let offset = 0;
+        while (offset < meta.count) {
+            const chunk = await callCollector('readFinalChunk', offset, 10, 1400000);
+            if (!chunk?.items?.length || chunk.next <= offset) break;
+            chunks.push(...chunk.items);
+            offset = chunk.next;
+        }
+        if (!chunks.length) return '';
 
-        const orderedTurns = Array.from(turns.values())
-            .sort((a, b) => a.order === b.order ? a.firstSeen - b.firstSeen : a.order - b.order)
-            .map(item => item.html);
+        const escapeAttr = (value) => String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/"/g, '&quot;')
+            .replace(/</g, '&lt;');
+        const body = chunks.map(item => item.html).join('\n');
+        const head = `<title>${escapeAttr(meta.title)}</title>` +
+            `<link rel="canonical" href="${escapeAttr(meta.canonical)}">` +
+            (meta.ogTitle ? `<meta property="og:title" content="${escapeAttr(meta.ogTitle)}">` : '') +
+            (meta.ogDescription ? `<meta property="og:description" content="${escapeAttr(meta.ogDescription)}">` : '');
 
-        return `<!doctype html><html lang="${escapeAttr(document.documentElement.lang || 'en')}"><head>` +
-            `<title>${escapeAttr(title)}</title>` +
-            `<link rel="canonical" href="${escapeAttr(canonical)}">` +
-            `<meta property="og:title" content="${escapeAttr(ogTitle)}">` +
-            `<meta property="og:description" content="${escapeAttr(ogDescription)}">` +
-            `</head><body><main id="c2p-collected-chatgpt" data-provider="chatgpt" data-collected-turns="${orderedTurns.length}">${orderedTurns.join('\n')}</main></body></html>`;
-    }, url);
+        if (provider === 'chatgpt') {
+            return `<!doctype html><html lang="${escapeAttr(meta.lang)}"><head>${head}</head><body>` +
+                `<main id="c2p-collected-chatgpt" data-provider="chatgpt" data-collected-turns="${chunks.length}">${body}</main></body></html>`;
+        }
+        if (provider === 'gemini') {
+            return `<!doctype html><html lang="${escapeAttr(meta.lang)}"><head>${head}</head><body>` +
+                `<div class="publish-time">${escapeAttr(meta.date)}</div><main id="c2p-collected-gemini" data-provider="gemini" data-collected-turns="${chunks.length}">` +
+                `<share-viewer>${body}</share-viewer></main></body></html>`;
+        }
+        if (provider === 'qwen') {
+            return `<!doctype html><html lang="${escapeAttr(meta.lang)}"><head>${head}</head><body>` +
+                `<div class="share-layout-title">${escapeAttr(meta.title)}</div><div class="share-layout-date">${escapeAttr(meta.date)}</div>` +
+                `<div class="share-layout-messages" data-provider="qwen" data-collected-turns="${chunks.length}">${body}</div></body></html>`;
+        }
+        if (provider === 'grok') {
+            return `<!doctype html><html lang="${escapeAttr(meta.lang)}"><head>${head}</head><body>` +
+                `<main id="c2p-collected-grok" data-provider="grok" data-collected-turns="${chunks.length}">${body}</main></body></html>`;
+        }
+        return '';
+    } finally {
+        await page.evaluate((stateKey) => { try { delete window[stateKey]; } catch (_) {} }, STATE_KEY).catch(() => {});
+    }
+}
+
+async function collectChatGPTHTML(page, url, options = {}) {
+    return collectChunkedProviderHTML(page, 'chatgpt', url, options);
 }
 
 async function collectClaudeHTML(page, url, { expectedMessages = 0 } = {}) {
@@ -657,101 +918,16 @@ async function collectClaudeHTML(page, url, { expectedMessages = 0 } = {}) {
     }
 }
 
-async function collectGeminiHTML(page, url) {
-    // Gemini's public share route hydrates Angular custom elements asynchronously.
-    // Wait for complete user/assistant pairs and snapshot only the share viewer so a
-    // slow app shell or sign-in chrome cannot make a valid public chat look empty.
-    return await page.evaluate(async (sourceUrl) => {
-        const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-        const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim();
-        const scrollTarget = document.scrollingElement || document.documentElement;
-
-        function expandPrompts() {
-            Array.from(document.querySelectorAll('[data-test-id="luminous-expand-button"], button[aria-label="Expand"]')).forEach((button) => {
-                try { button.click(); } catch (_) {}
-            });
-        }
-
-        function metrics() {
-            const turns = Array.from(document.querySelectorAll('share-viewer share-turn-viewer, .share-viewer share-turn-viewer'));
-            let users = 0;
-            let assistants = 0;
-            let textLength = 0;
-            turns.forEach((turn) => {
-                const user = turn.querySelector('user-query .query-text, user-query-content .query-text, .query-text');
-                const assistant = turn.querySelector('response-container message-content .markdown-main-panel, response-container .markdown-main-panel, message-content .markdown-main-panel, .markdown-main-panel');
-                const userText = normalize(user?.textContent);
-                const assistantText = normalize(assistant?.textContent);
-                if (userText) { users += 1; textLength += userText.length; }
-                if (assistantText) { assistants += 1; textLength += assistantText.length; }
-            });
-            return { turns: turns.length, users, assistants, textLength, height: scrollTarget.scrollHeight || 0 };
-        }
-
-        let stable = 0;
-        let previous = '';
-        for (let i = 0; i < 42; i += 1) {
-            expandPrompts();
-            const m = metrics();
-            const signature = `${m.turns}:${m.users}:${m.assistants}:${m.textLength}:${m.height}`;
-            if (m.users > 0 && m.assistants > 0 && signature === previous) stable += 1;
-            else stable = 0;
-            previous = signature;
-            if (stable >= 3) break;
-
-            if (i % 3 === 0) {
-                try { scrollTarget.scrollTo?.(0, scrollTarget.scrollHeight || 0); } catch (_) { window.scrollTo(0, document.documentElement.scrollHeight || 0); }
-            }
-            await sleep(550);
-        }
-
-        expandPrompts();
-        await sleep(350);
-        const root = document.querySelector('share-viewer') || document.querySelector('.share-landing-page_content');
-        if (!root) return '';
-
-        const clone = root.cloneNode(true);
-        clone.querySelectorAll([
-            'script', 'style', 'noscript', 'template', 'button', 'input', 'textarea', 'select',
-            'iframe', 'canvas', 'audio', 'video', '.luminous-actions-container', '.link-action-buttons',
-            '.response-container-header', '.response-container-footer', '.share-viewer_legal-links', '.share-viewer_footer',
-            '[data-test-id="prompt-copy-button"]', '[data-test-id="report-link"]'
-        ].join(',')).forEach((node) => node.remove());
-
-        const title = document.querySelector('share-viewer .headline strong, .share-viewer .headline strong')?.textContent?.trim() || document.title || '';
-        const date = document.querySelector('share-viewer .publish-time, .share-viewer .publish-time')?.textContent?.trim() || '';
-        const canonical = document.querySelector('link[rel="canonical"]')?.getAttribute('href') || sourceUrl || '';
-        const escapeAttr = (value) => String(value || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
-
-        return `<!doctype html><html lang="${escapeAttr(document.documentElement.lang || 'en')}"><head>` +
-            `<title>${escapeAttr(title)}</title><link rel="canonical" href="${escapeAttr(canonical)}"></head>` +
-            `<body><div class="publish-time">${escapeAttr(date)}</div><main id="c2p-collected-gemini" data-provider="gemini">${clone.outerHTML}</main></body></html>`;
-    }, url);
+async function collectGeminiHTML(page, url, options = {}) {
+    return collectChunkedProviderHTML(page, 'gemini', url, options);
 }
 
-async function collectQwenHTML(page, url) {
-    return await page.evaluate((sourceUrl) => {
-        const root = document.querySelector('.share-layout-messages');
-        if (!root) return '';
+async function collectQwenHTML(page, url, options = {}) {
+    return collectChunkedProviderHTML(page, 'qwen', url, options);
+}
 
-        const clone = root.cloneNode(true);
-        clone.querySelectorAll([
-            'script', 'style', 'noscript', 'template', 'button', 'input', 'textarea', 'select',
-            'iframe', 'canvas', 'audio', 'video', 'svg', '[role="button"]',
-            '.message-hoc-container', '.user-message-footer', '.response-message-footer'
-        ].join(',')).forEach((node) => node.remove());
-
-        const title = document.querySelector('.share-layout-title')?.textContent?.trim() || document.title || '';
-        const date = document.querySelector('.share-layout-date')?.textContent?.trim() || '';
-        const canonical = document.querySelector('link[rel="canonical"]')?.getAttribute('href') || sourceUrl || '';
-        const escapeAttr = (value) => String(value || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
-
-        return `<!doctype html><html lang="${escapeAttr(document.documentElement.lang || 'en')}"><head>` +
-            `<title>${escapeAttr(title)}</title>` +
-            `<link rel="canonical" href="${escapeAttr(canonical)}">` +
-            `</head><body><div class="share-layout-title">${escapeAttr(title)}</div>` +
-            `<div class="share-layout-date">${escapeAttr(date)}</div>${clone.outerHTML}</body></html>`;
-    }, url);
+async function collectGrokHTML(page, url, options = {}) {
+    return collectChunkedProviderHTML(page, 'grok', url, options);
 }
 
 
@@ -1044,7 +1220,7 @@ async function collectPageHTML(page, provider, url, { expectedMessages = 0 } = {
         await page.waitForNetworkIdle({ idleTime: 650, timeout: 7000 }).catch(() => {});
 
         if (provider === 'chatgpt') {
-            let html = await collectChatGPTHTML(page, url);
+            let html = await collectChatGPTHTML(page, url, { expectedMessages });
             if (!/data-message-author-role|conversation-turn-|data-turn=/i.test(html)) html = await page.content();
             return html;
         }
@@ -1056,14 +1232,20 @@ async function collectPageHTML(page, provider, url, { expectedMessages = 0 } = {
         }
 
         if (provider === 'gemini') {
-            let html = await collectGeminiHTML(page, url);
+            let html = await collectGeminiHTML(page, url, { expectedMessages });
             if (!/share-turn-viewer|markdown-main-panel|query-text/i.test(html)) html = await page.content();
             return html;
         }
 
         if (provider === 'qwen') {
-            let html = await collectQwenHTML(page, url);
+            let html = await collectQwenHTML(page, url, { expectedMessages });
             if (!/share-layout-messages|qwen-chat-message/i.test(html)) html = await page.content();
+            return html;
+        }
+
+        if (provider === 'grok') {
+            let html = await collectGrokHTML(page, url, { expectedMessages });
+            if (!/data-testid=["'](?:user-message|assistant-message)["']/i.test(html)) html = await page.content();
             return html;
         }
 
@@ -1091,11 +1273,11 @@ async function collectPageHTML(page, provider, url, { expectedMessages = 0 } = {
         await delay(provider === 'gemini' ? 1200 : 700);
         return await page.content();
     } catch (error) {
-        if (provider === 'claude' && expectedMessages >= 2 && isProtocolTimeoutError(error)) {
-            // The route will append the already captured structured messages below.
-            // Returning a tiny shell is safer than immediately asking Chrome to
-            // serialize the entire giant document with page.content().
-            return '<!doctype html><html><head></head><body><main id="c2p-claude-structured-fallback" data-provider="claude"></main></body></html>';
+        if (expectedMessages >= 2 && isProtocolTimeoutError(error)) {
+            // The route will append already captured structured messages below. For a
+            // giant page, asking Chrome for page.content() immediately after a CDP
+            // timeout can trigger the same failure again, regardless of provider.
+            return `<!doctype html><html><head></head><body><main id="c2p-${provider}-structured-fallback" data-provider="${provider}"></main></body></html>`;
         }
         return await page.content();
     }
@@ -1142,12 +1324,44 @@ app.post('/api/extract', extractionSecurityHeaders, rejectCrossOriginBrowserRequ
         : null;
     progressHeartbeat?.unref?.();
 
-    const sendExtractionResponse = (status, payload) => {
-        if (!wantsProgressStream) return res.status(status).json(payload);
-        if (!res.writableEnded) {
-            res.write(`${JSON.stringify({ type: 'result', status, ...payload })}\n`);
-            res.end();
+    const writeNdjson = async (event) => {
+        if (res.writableEnded) return false;
+        const writable = res.write(`${JSON.stringify(event)}\n`);
+        if (!writable && !res.writableEnded) {
+            await new Promise((resolve) => {
+                const done = () => {
+                    res.off('drain', done);
+                    res.off('close', done);
+                    resolve();
+                };
+                res.once('drain', done);
+                res.once('close', done);
+            });
         }
+        return !res.writableEnded;
+    };
+
+    const sendExtractionResponse = async (status, payload) => {
+        if (!wantsProgressStream) return res.status(status).json(payload);
+        if (res.writableEnded) return;
+        if (progressHeartbeat) clearInterval(progressHeartbeat);
+
+        const html = typeof payload?.html === 'string' ? payload.html : '';
+        if (html.length > STREAM_HTML_CHUNK_SIZE) {
+            const { html: _html, ...metadata } = payload;
+            const totalChunks = Math.ceil(html.length / STREAM_HTML_CHUNK_SIZE);
+            if (!await writeNdjson({ type: 'result_start', status, htmlChunked: true, totalChunks, ...metadata })) return;
+            for (let offset = 0, index = 0; offset < html.length; offset += STREAM_HTML_CHUNK_SIZE, index += 1) {
+                const data = html.slice(offset, offset + STREAM_HTML_CHUNK_SIZE);
+                if (!await writeNdjson({ type: 'html_chunk', index, data })) return;
+            }
+            if (!await writeNdjson({ type: 'result_end' })) return;
+            res.end();
+            return;
+        }
+
+        await writeNdjson({ type: 'result', status, ...payload });
+        if (!res.writableEnded) res.end();
     };
 
     sendProgress('validated');
@@ -1343,7 +1557,7 @@ app.post('/api/extract', extractionSecurityHeaders, rejectCrossOriginBrowserRequ
             : (hasUsableDomEvidence(evidence) ? 'dom' : 'structured-fallback');
         console.log(`[${requestId}] extraction succeeded provider=${provider} dom=${evidence.users}/${evidence.assistants} collected=${htmlEvidence.users}/${htmlEvidence.assistants} fallbackMessages=${fallbackMessages.length} durationMs=${Date.now() - extractionStartedAt}`);
         sendProgress('extraction_complete', { source });
-        return sendExtractionResponse(200, {
+        return await sendExtractionResponse(200, {
             success: true,
             provider,
             html,
@@ -1361,7 +1575,7 @@ app.post('/api/extract', extractionSecurityHeaders, rejectCrossOriginBrowserRequ
         const code = error instanceof ExtractionError ? error.code : (protocolTimedOut ? 'BROWSER_PROTOCOL_TIMEOUT' : 'EXTRACTION_FAILED');
         console.error(`[${requestId}] ${code}${error instanceof ExtractionError ? `: ${error.message}` : ` (${error?.name || 'Error'})`} durationMs=${Date.now() - extractionStartedAt}`);
         sendProgress('extraction_error', { code });
-        return sendExtractionResponse(status, {
+        return await sendExtractionResponse(status, {
             success: false,
             code,
             requestId,
