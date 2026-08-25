@@ -21,6 +21,21 @@ puppeteer.use(StealthPlugin());
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+function boundedEnvInt(name, fallback, min, max) {
+    const raw = Number(process.env[name]);
+    if (!Number.isFinite(raw)) return fallback;
+    return Math.min(max, Math.max(min, Math.round(raw)));
+}
+
+// Puppeteer's default protocol timeout is 180s. Long public-share pages can make a
+// single CDP serialization expensive, so keep a larger safety margin. The Claude
+// collector below is also deliberately split into short CDP calls so this is a
+// fallback, not the primary long-conversation strategy.
+const PUPPETEER_PROTOCOL_TIMEOUT_MS = boundedEnvInt('PUPPETEER_PROTOCOL_TIMEOUT_MS', 300000, 60000, 600000);
+const CLAUDE_COLLECTION_BUDGET_MS = boundedEnvInt('CLAUDE_COLLECTION_BUDGET_MS', 150000, 30000, 300000);
+const CLAUDE_CAPTURE_BATCH_SIZE = boundedEnvInt('CLAUDE_CAPTURE_BATCH_SIZE', 24, 4, 64);
+
 app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS || 1));
 
 
@@ -304,15 +319,25 @@ async function collectChatGPTHTML(page, url) {
     }, url);
 }
 
-async function collectClaudeHTML(page, url) {
-    // Claude's current public-share DOM exposes user turns as data-testid="user-message"
-    // and assistant turns as .font-claude-response containing .standard-markdown /
-    // .progressive-markdown. Capture those rendered nodes directly so network/script
-    // Markdown remains a last-resort fallback rather than replacing semantic HTML.
-    return await page.evaluate(async (sourceUrl) => {
-        const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+async function collectClaudeHTML(page, url, { expectedMessages = 0 } = {}) {
+    // Claude chats can be enormous. The old collector performed the entire scroll,
+    // repeated DOM scans, cloning, and final serialization inside one page.evaluate().
+    // On very large conversations that kept one Runtime.callFunctionOn open long
+    // enough to hit Puppeteer's protocol timeout. This collector keeps state in the
+    // page, but advances it through many short CDP calls and clones only new/richer
+    // turns in bounded batches.
+    const STATE_KEY = '__c2pClaudeCollectorV3';
+    const startedAt = Date.now();
+
+    await page.evaluate(({ stateKey, sourceUrl, captureBatchSize }) => {
         const normalize = (value) => String(value || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
-        const escapeAttr = (value) => String(value || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+        const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+        const turnSelector = [
+            '[data-testid="user-message"]', '[class*="font-user-message"]', '[data-message-author-role="user"]',
+            '.font-claude-response', '[class*="font-claude-message"]', '[data-testid="assistant-message"]', '[data-message-author-role="assistant"]'
+        ].join(',');
+        const assistantRootSelector = '.font-claude-response, [class*="font-claude-message"], [data-testid="assistant-message"], [data-message-author-role="assistant"]';
+        const richSelector = 'strong,b,em,i,h1,h2,h3,h4,h5,h6,ul,ol,li,pre,code,table,blockquote,math,.katex,.MathJax,[class*="math"]';
 
         function getScrollTarget() {
             const candidates = [
@@ -329,36 +354,30 @@ async function collectClaudeHTML(page, url) {
         function roleFor(node) {
             if (!node) return '';
             if (node.matches?.('[data-testid="user-message"], [class*="font-user-message"], [data-message-author-role="user"]')) return 'user';
-            if (node.matches?.('.font-claude-response, [class*="font-claude-message"], [data-testid="assistant-message"], [data-message-author-role="assistant"]')) return 'assistant';
+            if (node.matches?.(assistantRootSelector)) return 'assistant';
             return '';
         }
 
         function contentFor(node, role) {
-            if (role === 'assistant') {
-                // Keep the outer Claude response root when available: tool-status rows can
-                // sit beside the markdown body. parser.js will sanitize UI chrome later.
-                if (node.matches?.('.font-claude-response, [class*="font-claude-message"]')) return node;
-                return node.closest?.('.font-claude-response, [class*="font-claude-message"]') ||
-                    node.querySelector?.('.standard-markdown, .progressive-markdown, [class*="markdown"]') || node;
-            }
-            return node;
+            if (role !== 'assistant') return node;
+            if (node.matches?.('.font-claude-response, [class*="font-claude-message"]')) return node;
+            return node.closest?.('.font-claude-response, [class*="font-claude-message"]') ||
+                node.querySelector?.('.standard-markdown, .progressive-markdown, [class*="markdown"]') || node;
         }
 
-        function turnNodes() {
-            const users = Array.from(document.querySelectorAll(
-                '[data-testid="user-message"], [class*="font-user-message"], [data-message-author-role="user"]'
-            ));
-            const assistants = Array.from(document.querySelectorAll(
-                '.font-claude-response, [class*="font-claude-message"], [data-testid="assistant-message"], [data-message-author-role="assistant"]'
-            )).filter((node) => {
-                // Do not capture nested wrappers for the same response twice.
-                const parent = node.parentElement?.closest?.('.font-claude-response, [class*="font-claude-message"]');
-                return !parent;
-            });
-            return [...new Set([...users, ...assistants])].sort((a, b) => {
-                if (a === b) return 0;
-                return a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
-            });
+        function isNestedDuplicate(node, role) {
+            if (role === 'assistant') {
+                const preferred = '.font-claude-response, [class*="font-claude-message"]';
+                if (node.parentElement?.closest?.(preferred)) return true;
+                if (node.matches?.('[data-testid="assistant-message"], [data-message-author-role="assistant"]') && node.querySelector?.(preferred)) return true;
+                return false;
+            }
+            if (role === 'user') {
+                const preferred = '[data-testid="user-message"], [class*="font-user-message"]';
+                if (node.parentElement?.closest?.(preferred)) return true;
+                if (node.matches?.('[data-message-author-role="user"]') && node.querySelector?.(preferred)) return true;
+            }
+            return false;
         }
 
         function semanticRichness(node) {
@@ -386,92 +405,256 @@ async function collectClaudeHTML(page, url) {
             return clone;
         }
 
-        const turns = new Map();
-        let sequence = 0;
-
-        function capture() {
-            const occurrences = new Map();
-            let changed = 0;
-            turnNodes().forEach((node, domIndex) => {
-                const role = roleFor(node);
-                const content = contentFor(node, role);
-                const text = normalize(content?.innerText || content?.textContent || '');
-                if (!role || !text) return;
-
-                const base = `${role}:${text.slice(0, 12000)}`;
-                const occurrence = occurrences.get(base) || 0;
-                occurrences.set(base, occurrence + 1);
-                const key = `${base}:${occurrence}`;
-
-                const clone = cleanClone(content);
-                const html = clone.outerHTML;
-                const richness = semanticRichness(content);
-                const existing = turns.get(key);
-                const order = existing?.order ?? sequence++;
-
-                if (!existing || richness > existing.richness || html.length > existing.html.length * 1.08) {
-                    turns.set(key, { role, text, html, richness, order, domIndex });
-                    changed += 1;
-                }
-            });
-            return changed;
-        }
-
         const target = getScrollTarget();
-        const viewport = Math.max(650, target.clientHeight || window.innerHeight || 900);
-        const step = Math.max(480, Math.floor(viewport * 0.78));
-        let previousSignature = '';
-        let stableBottom = 0;
+        const viewport = Math.max(650, target?.clientHeight || window.innerHeight || 900);
+        const state = {
+            version: 3,
+            sourceUrl,
+            target,
+            step: Math.max(480, Math.floor(viewport * 0.82)),
+            turns: new Map(),
+            sequence: 0,
+            capturePass: 0,
+            maxMounted: 0,
+            minMounted: Number.POSITIVE_INFINITY,
+            batchSize: captureBatchSize,
 
-        try { target.scrollTo?.(0, 0); } catch (_) { window.scrollTo(0, 0); }
-        await sleep(450);
-        capture();
+            metrics(extra = {}) {
+                const currentTarget = this.target || document.scrollingElement || document.documentElement;
+                const top = currentTarget?.scrollTop || window.scrollY || 0;
+                const height = currentTarget?.scrollHeight || document.documentElement.scrollHeight || 0;
+                const client = currentTarget?.clientHeight || window.innerHeight || 0;
+                return {
+                    collected: this.turns.size,
+                    maxMounted: this.maxMounted,
+                    minMounted: Number.isFinite(this.minMounted) ? this.minMounted : 0,
+                    top,
+                    height,
+                    client,
+                    maxTop: Math.max(0, height - client),
+                    step: this.step,
+                    ...extra
+                };
+            },
 
-        for (let i = 0; i < 100; i += 1) {
-            const beforeTop = target.scrollTop || window.scrollY || 0;
-            try { target.scrollBy?.(0, step); } catch (_) { window.scrollBy(0, step); }
-            await sleep(220);
-            capture();
+            capture(maxClones = this.batchSize) {
+                this.capturePass += 1;
+                const occurrences = new Map();
+                const nodes = Array.from(document.querySelectorAll(turnSelector));
+                let mounted = 0;
+                let changed = 0;
+                let cloned = 0;
+                let pending = 0;
 
-            const top = target.scrollTop || window.scrollY || 0;
-            const height = target.scrollHeight || document.documentElement.scrollHeight || 0;
-            const client = target.clientHeight || window.innerHeight || 0;
-            const maxTop = Math.max(0, height - client);
-            const signature = `${turns.size}:${height}:${Math.round(top)}`;
-            const atBottom = top >= maxTop - 16 || top === beforeTop;
+                for (const node of nodes) {
+                    const role = roleFor(node);
+                    if (!role || isNestedDuplicate(node, role)) continue;
+                    const content = contentFor(node, role);
+                    const text = normalize(content?.textContent || '');
+                    if (!text) continue;
+                    mounted += 1;
 
-            if (atBottom && signature === previousSignature) stableBottom += 1;
-            else stableBottom = 0;
-            previousSignature = signature;
-            if (stableBottom >= 3) break;
+                    // A stable prefix survives normal hydration while avoiding the huge
+                    // full-text keys that made repeated scans expensive. Occurrence keeps
+                    // intentionally repeated short messages distinct within a viewport.
+                    const base = `${role}:${text.slice(0, 320)}`;
+                    const occurrence = occurrences.get(base) || 0;
+                    occurrences.set(base, occurrence + 1);
+                    const key = `${base}:${occurrence}`;
+                    const existing = this.turns.get(key);
+
+                    let shouldClone = !existing || text.length > existing.textLength + 8;
+                    let quickMarkupCount = existing?.markupCount || 0;
+                    if (!shouldClone && this.capturePass % 6 === 0) {
+                        try { quickMarkupCount = content.querySelectorAll(richSelector).length; } catch (_) {}
+                        if (quickMarkupCount > (existing?.markupCount || 0)) shouldClone = true;
+                    }
+                    if (!shouldClone) continue;
+
+                    if (cloned >= maxClones) {
+                        pending += 1;
+                        continue;
+                    }
+
+                    const clone = cleanClone(content);
+                    const html = clone.outerHTML;
+                    const richness = semanticRichness(clone);
+                    if (!quickMarkupCount) {
+                        try { quickMarkupCount = clone.querySelectorAll(richSelector).length; } catch (_) {}
+                    }
+                    const order = existing?.order ?? this.sequence++;
+
+                    if (!existing || text.length >= existing.textLength || richness >= existing.richness || html.length > existing.html.length * 1.05) {
+                        this.turns.set(key, {
+                            role,
+                            html,
+                            richness,
+                            markupCount: quickMarkupCount,
+                            textLength: text.length,
+                            order
+                        });
+                        changed += 1;
+                    }
+                    cloned += 1;
+                }
+
+                this.maxMounted = Math.max(this.maxMounted, mounted);
+                this.minMounted = Math.min(this.minMounted, mounted);
+                return this.metrics({ mounted, changed, cloned, pending });
+            },
+
+            async scrollTo(y, settleMs = 120) {
+                const currentTarget = this.target || document.scrollingElement || document.documentElement;
+                try { currentTarget?.scrollTo?.(0, Math.max(0, y)); } catch (_) { window.scrollTo(0, Math.max(0, y)); }
+                await sleep(settleMs);
+                return this.metrics();
+            },
+
+            async scrollDown(settleMs = 140) {
+                const currentTarget = this.target || document.scrollingElement || document.documentElement;
+                const beforeTop = currentTarget?.scrollTop || window.scrollY || 0;
+                try { currentTarget?.scrollBy?.(0, this.step); } catch (_) { window.scrollBy(0, this.step); }
+                await sleep(settleMs);
+                const result = this.metrics({ beforeTop });
+                result.atBottom = result.top >= result.maxTop - 16 || result.top === beforeTop;
+                return result;
+            },
+
+            prepareFinal() {
+                this.finalTurns = Array.from(this.turns.values()).sort((a, b) => a.order - b.order);
+                return {
+                    count: this.finalTurns.length,
+                    title: document.querySelector('meta[property="og:title"]')?.getAttribute('content') || document.title || '',
+                    canonical: document.querySelector('link[rel="canonical"]')?.getAttribute('href') || this.sourceUrl || '',
+                    lang: document.documentElement.lang || 'en'
+                };
+            },
+
+            readFinalChunk(offset = 0, maxItems = 12, maxChars = 1500000) {
+                const source = Array.isArray(this.finalTurns) ? this.finalTurns : [];
+                const items = [];
+                let chars = 0;
+                let index = Math.max(0, Number(offset) || 0);
+                const itemLimit = Math.max(1, Math.min(24, Number(maxItems) || 12));
+                const charLimit = Math.max(100000, Math.min(3000000, Number(maxChars) || 1500000));
+
+                while (index < source.length && items.length < itemLimit) {
+                    const turn = source[index];
+                    const size = String(turn?.html || '').length;
+                    if (items.length && chars + size > charLimit) break;
+                    items.push({ role: turn.role, richness: turn.richness, html: turn.html });
+                    chars += size;
+                    index += 1;
+                    if (chars >= charLimit) break;
+                }
+                return { items, next: index, total: source.length };
+            }
+        };
+
+        window[stateKey] = state;
+    }, { stateKey: STATE_KEY, sourceUrl: url, captureBatchSize: CLAUDE_CAPTURE_BATCH_SIZE });
+
+    const callCollector = (method, ...args) => page.evaluate(({ stateKey, method, args }) => {
+        const collector = window[stateKey];
+        if (!collector || typeof collector[method] !== 'function') throw new Error('Claude collector state was lost.');
+        return collector[method](...args);
+    }, { stateKey: STATE_KEY, method, args });
+
+    const drainCurrentPosition = async (maxRounds = 96) => {
+        let metrics = null;
+        for (let round = 0; round < maxRounds; round += 1) {
+            metrics = await callCollector('capture', CLAUDE_CAPTURE_BATCH_SIZE);
+            if (!metrics?.pending) return metrics;
+            if (Date.now() - startedAt >= CLAUDE_COLLECTION_BUDGET_MS) return metrics;
+            // Yield to Chrome/Node between bounded batches instead of monopolizing one
+            // Runtime.callFunctionOn for the whole conversation.
+            await delay(0);
+        }
+        return metrics;
+    };
+
+    try {
+        await callCollector('scrollTo', 0, 280);
+        let metrics = await drainCurrentPosition();
+        if (!metrics?.collected) return '';
+
+        const expected = Math.max(0, Number(expectedMessages) || 0);
+        const likelyFullyMounted = (
+            (expected >= 8 && metrics.collected >= Math.max(2, Math.floor(expected * 0.82))) ||
+            (metrics.maxMounted >= 120 && metrics.collected === metrics.maxMounted)
+        );
+
+        if (likelyFullyMounted) {
+            // Claude frequently keeps the whole shared chat mounted. For hundreds of
+            // turns, walking every viewport only re-scans the same DOM. Touch the bottom
+            // once to trigger any lazy hydration, capture changes, then return to top.
+            await callCollector('scrollTo', metrics.maxTop, 420);
+            metrics = await drainCurrentPosition();
+            await callCollector('scrollTo', 0, 180);
+            metrics = await drainCurrentPosition();
+        } else {
+            let stableBottom = 0;
+            let previousSignature = '';
+            const maxForwardSteps = 420;
+
+            for (let i = 0; i < maxForwardSteps && Date.now() - startedAt < CLAUDE_COLLECTION_BUDGET_MS; i += 1) {
+                const moved = await callCollector('scrollDown', 140);
+                metrics = await drainCurrentPosition(32) || moved;
+                const signature = `${metrics.collected}:${metrics.height}:${Math.round(metrics.top)}`;
+
+                if (moved.atBottom && signature === previousSignature) stableBottom += 1;
+                else stableBottom = 0;
+                previousSignature = signature;
+                if (stableBottom >= 2) break;
+            }
+
+            // Reverse only when the number of distinct collected turns is materially
+            // larger than the mounted window, which is strong evidence of virtualization.
+            const virtualized = metrics && metrics.maxMounted > 0 && metrics.collected > Math.max(metrics.maxMounted + 8, Math.floor(metrics.maxMounted * 1.35));
+            if (virtualized && Date.now() - startedAt < CLAUDE_COLLECTION_BUDGET_MS) {
+                const reverseStep = Math.max(520, Math.floor((metrics.step || 700) * 1.15));
+                for (let pos = metrics.maxTop; pos > 0 && Date.now() - startedAt < CLAUDE_COLLECTION_BUDGET_MS; pos -= reverseStep) {
+                    await callCollector('scrollTo', pos, 90);
+                    metrics = await drainCurrentPosition(24);
+                }
+            }
+
+            await callCollector('scrollTo', 0, 160);
+            await drainCurrentPosition(24);
         }
 
-        // Reverse pass covers pages that virtualize earlier rows while scrolling down.
-        const bottom = Math.max(0, (target.scrollHeight || 0) - (target.clientHeight || window.innerHeight || 0));
-        for (let pos = bottom; pos > 0; pos -= Math.floor(step * 1.15)) {
-            try { target.scrollTo?.(0, Math.max(0, pos)); } catch (_) { window.scrollTo(0, Math.max(0, pos)); }
-            await sleep(140);
-            capture();
+        const meta = await callCollector('prepareFinal');
+        if (!meta?.count) return '';
+
+        const escapeAttr = (value) => String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/"/g, '&quot;')
+            .replace(/</g, '&lt;');
+        const sections = [];
+        let offset = 0;
+        while (offset < meta.count) {
+            const chunk = await callCollector('readFinalChunk', offset, 12, 1500000);
+            if (!chunk?.items?.length || chunk.next <= offset) break;
+            chunk.items.forEach((turn, chunkIndex) => {
+                const index = offset + chunkIndex;
+                sections.push(
+                    `<section data-c2p-claude-turn="${index}" data-message-author-role="${turn.role}" data-c2p-richness="${turn.richness}">` +
+                    `<div class="c2p-claude-content">${turn.html}</div></section>`
+                );
+            });
+            offset = chunk.next;
         }
-        try { target.scrollTo?.(0, 0); } catch (_) { window.scrollTo(0, 0); }
-        await sleep(180);
-        capture();
 
-        const ordered = Array.from(turns.values())
-            .sort((a, b) => a.order - b.order)
-            .map((turn, index) =>
-                `<section data-c2p-claude-turn="${index}" data-message-author-role="${turn.role}" data-c2p-richness="${turn.richness}">` +
-                `<div class="c2p-claude-content">${turn.html}</div></section>`
-            );
-
-        if (!ordered.length) return '';
-        const title = document.querySelector('meta[property="og:title"]')?.getAttribute('content') || document.title || '';
-        const canonical = document.querySelector('link[rel="canonical"]')?.getAttribute('href') || sourceUrl || '';
-        return `<!doctype html><html lang="${escapeAttr(document.documentElement.lang || 'en')}"><head>` +
-            `<title>${escapeAttr(title)}</title><link rel="canonical" href="${escapeAttr(canonical)}">` +
-            `<meta property="og:title" content="${escapeAttr(title)}"></head>` +
-            `<body><main id="c2p-collected-claude" data-provider="claude" data-collected-turns="${ordered.length}">${ordered.join('\n')}</main></body></html>`;
-    }, url);
+        if (!sections.length) return '';
+        return `<!doctype html><html lang="${escapeAttr(meta.lang)}"><head>` +
+            `<title>${escapeAttr(meta.title)}</title><link rel="canonical" href="${escapeAttr(meta.canonical)}">` +
+            `<meta property="og:title" content="${escapeAttr(meta.title)}"></head>` +
+            `<body><main id="c2p-collected-claude" data-provider="claude" data-collected-turns="${sections.length}">${sections.join('\n')}</main></body></html>`;
+    } finally {
+        // Release potentially large serialized turn snapshots as soon as the result has
+        // crossed the CDP boundary back to Node.
+        await page.evaluate((stateKey) => { try { delete window[stateKey]; } catch (_) {} }, STATE_KEY).catch(() => {});
+    }
 }
 
 async function collectGeminiHTML(page, url) {
@@ -577,6 +760,11 @@ async function collectQwenHTML(page, url) {
 // ==========================================
 function delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function isProtocolTimeoutError(error) {
+    const message = String(error?.message || error || '');
+    return /Runtime\.callFunctionOn timed out|protocolTimeout|protocol timeout|ProtocolError[^\n]*timed out/i.test(message);
 }
 
 function safeUrlForLog(value) {
@@ -706,24 +894,38 @@ function createNetworkCapture(page, requestId) {
 async function inspectConversationDOM(page, provider) {
     const selectors = PROVIDER_CONFIG[provider]?.selectors || {};
     return page.evaluate(({ userSelector, assistantSelector }) => {
-        const visibleText = (node) => (node?.innerText || node?.textContent || '').replace(/\s+/g, ' ').trim();
-        const unique = (selector) => {
-            if (!selector) return [];
-            const seen = new Set();
-            return Array.from(document.querySelectorAll(selector)).filter((node) => {
-                const text = visibleText(node);
-                if (!text || seen.has(text)) return false;
-                seen.add(text);
-                return true;
-            });
+        // Evidence polling runs repeatedly while the provider hydrates. Avoid innerText
+        // (layout-forcing) and avoid hashing every message body on giant conversations.
+        // We only need proof that both roles exist plus a small text sample.
+        const summarize = (selector) => {
+            if (!selector) return { count: 0, textLength: 0 };
+            const nodes = Array.from(document.querySelectorAll(selector));
+            let count = 0;
+            let sampled = 0;
+            let textLength = 0;
+
+            for (const node of nodes) {
+                // Broad provider selectors intentionally include nested fallbacks. Count
+                // only the outermost match so diagnostics stay meaningful.
+                if (node.parentElement?.closest?.(selector)) continue;
+                count += 1;
+                if (sampled >= 24) continue;
+                const text = String(node.textContent || '').replace(/\s+/g, ' ').trim();
+                if (!text) continue;
+                textLength += Math.min(text.length, 4000);
+                sampled += 1;
+            }
+            return { count, textLength };
         };
-        const users = unique(userSelector);
-        const assistants = unique(assistantSelector);
+
+        const users = summarize(userSelector);
+        const assistants = summarize(assistantSelector);
+        const hasBothRoles = users.count > 0 && assistants.count > 0;
         return {
-            users: users.length,
-            assistants: assistants.length,
-            textLength: [...users, ...assistants].reduce((sum, node) => sum + visibleText(node).length, 0),
-            bodyText: (document.body?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 3000),
+            users: users.count,
+            assistants: assistants.count,
+            textLength: users.textLength + assistants.textLength,
+            bodyText: hasBothRoles ? '' : String(document.body?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 3000),
             title: document.title || '',
             url: location.href
         };
@@ -837,7 +1039,7 @@ function hasUsableCollectedEvidence(evidence) {
     return !!evidence && evidence.users > 0 && evidence.assistants > 0 && evidence.textLength >= 20;
 }
 
-async function collectPageHTML(page, provider, url) {
+async function collectPageHTML(page, provider, url, { expectedMessages = 0 } = {}) {
     try {
         await page.waitForNetworkIdle({ idleTime: 650, timeout: 7000 }).catch(() => {});
 
@@ -848,7 +1050,7 @@ async function collectPageHTML(page, provider, url) {
         }
 
         if (provider === 'claude') {
-            let html = await collectClaudeHTML(page, url);
+            let html = await collectClaudeHTML(page, url, { expectedMessages });
             if (!/data-c2p-claude-turn|font-claude-response|standard-markdown|progressive-markdown/i.test(html)) html = await page.content();
             return html;
         }
@@ -888,7 +1090,13 @@ async function collectPageHTML(page, provider, url) {
         });
         await delay(provider === 'gemini' ? 1200 : 700);
         return await page.content();
-    } catch (_) {
+    } catch (error) {
+        if (provider === 'claude' && expectedMessages >= 2 && isProtocolTimeoutError(error)) {
+            // The route will append the already captured structured messages below.
+            // Returning a tiny shell is safer than immediately asking Chrome to
+            // serialize the entire giant document with page.content().
+            return '<!doctype html><html><head></head><body><main id="c2p-claude-structured-fallback" data-provider="claude"></main></body></html>';
+        }
         return await page.content();
     }
 }
@@ -898,6 +1106,7 @@ async function collectPageHTML(page, provider, url) {
 // ==========================================
 app.post('/api/extract', extractionSecurityHeaders, rejectCrossOriginBrowserRequests, limiter, async (req, res) => {
     const requestId = crypto.randomUUID().slice(0, 8);
+    const extractionStartedAt = Date.now();
     const wantsProgressStream = String(req.get('accept') || '').includes('application/x-ndjson');
     const validation = validateShareUrl(req.body?.url);
     if (validation.error) {
@@ -918,10 +1127,20 @@ app.post('/api/extract', extractionSecurityHeaders, rejectCrossOriginBrowserRequ
         if (typeof res.flushHeaders === 'function') res.flushHeaders();
     }
 
+    let currentProgressStage = 'validated';
     const sendProgress = (stage, extra = {}) => {
+        if (stage && !extra.heartbeat) currentProgressStage = stage;
         if (!wantsProgressStream || res.writableEnded) return;
         res.write(`${JSON.stringify({ type: 'progress', stage, provider, ...extra })}\n`);
     };
+
+    // Long conversations can legitimately spend a while inside one extraction stage.
+    // Keep the NDJSON connection active without inventing new UI states or sending any
+    // conversation data. loading.html ignores repeated copies of the same stage.
+    const progressHeartbeat = wantsProgressStream
+        ? setInterval(() => sendProgress(currentProgressStage, { heartbeat: true }), 12000)
+        : null;
+    progressHeartbeat?.unref?.();
 
     const sendExtractionResponse = (status, payload) => {
         if (!wantsProgressStream) return res.status(status).json(payload);
@@ -948,11 +1167,15 @@ app.post('/api/extract', extractionSecurityHeaders, rejectCrossOriginBrowserRequ
 
         if (process.env.BROWSER_WS_ENDPOINT) {
             remoteBrowser = true;
-            browser = await puppeteer.connect({ browserWSEndpoint: process.env.BROWSER_WS_ENDPOINT });
+            browser = await puppeteer.connect({
+                browserWSEndpoint: process.env.BROWSER_WS_ENDPOINT,
+                protocolTimeout: PUPPETEER_PROTOCOL_TIMEOUT_MS
+            });
         } else {
             browser = await puppeteer.launch({
                 headless: true,
-                args: launchArgs
+                args: launchArgs,
+                protocolTimeout: PUPPETEER_PROTOCOL_TIMEOUT_MS
             });
         }
 
@@ -1027,7 +1250,7 @@ app.post('/api/extract', extractionSecurityHeaders, rejectCrossOriginBrowserRequ
         // stable snapshot even when the shell initially exposes only one side.
         if (!hasUsableDomEvidence(evidence) && !hasUsableNetworkEvidence(fallbackMessages)) {
             sendProgress('collecting_conversation');
-            html = await collectPageHTML(page, provider, url);
+            html = await collectPageHTML(page, provider, url, { expectedMessages: fallbackMessages.length });
             htmlEvidence = inspectCollectedHTMLEvidence(html, provider);
             embeddedMessages = collectEmbeddedStructuredMessages(html);
             fallbackMessages = collectStructuredMessages([networkMessages, embeddedMessages]);
@@ -1052,7 +1275,7 @@ app.post('/api/extract', extractionSecurityHeaders, rejectCrossOriginBrowserRequ
                 evidence = await inspectConversationDOM(page, provider);
                 networkMessages = collectStructuredMessages(networkCapture.payloads);
 
-                html = await collectPageHTML(page, provider, url);
+                html = await collectPageHTML(page, provider, url, { expectedMessages: fallbackMessages.length });
                 htmlEvidence = inspectCollectedHTMLEvidence(html, provider);
                 embeddedMessages = collectEmbeddedStructuredMessages(html);
                 fallbackMessages = collectStructuredMessages([networkMessages, embeddedMessages]);
@@ -1093,7 +1316,7 @@ app.post('/api/extract', extractionSecurityHeaders, rejectCrossOriginBrowserRequ
 
         if (!html) {
             sendProgress('collecting_conversation');
-            html = await collectPageHTML(page, provider, url);
+            html = await collectPageHTML(page, provider, url, { expectedMessages: fallbackMessages.length });
         }
         sendProgress('finalizing_extraction');
         htmlEvidence = inspectCollectedHTMLEvidence(html, provider);
@@ -1118,7 +1341,7 @@ app.post('/api/extract', extractionSecurityHeaders, rejectCrossOriginBrowserRequ
         const source = hasUsableCollectedEvidence(htmlEvidence)
             ? 'collected-html'
             : (hasUsableDomEvidence(evidence) ? 'dom' : 'structured-fallback');
-        console.log(`[${requestId}] extraction succeeded provider=${provider} dom=${evidence.users}/${evidence.assistants} collected=${htmlEvidence.users}/${htmlEvidence.assistants} fallbackMessages=${fallbackMessages.length}`);
+        console.log(`[${requestId}] extraction succeeded provider=${provider} dom=${evidence.users}/${evidence.assistants} collected=${htmlEvidence.users}/${htmlEvidence.assistants} fallbackMessages=${fallbackMessages.length} durationMs=${Date.now() - extractionStartedAt}`);
         sendProgress('extraction_complete', { source });
         return sendExtractionResponse(200, {
             success: true,
@@ -1133,9 +1356,10 @@ app.post('/api/extract', extractionSecurityHeaders, rejectCrossOriginBrowserRequ
             }
         });
     } catch (error) {
-        const status = error instanceof ExtractionError ? error.status : 500;
-        const code = error instanceof ExtractionError ? error.code : 'EXTRACTION_FAILED';
-        console.error(`[${requestId}] ${code}${error instanceof ExtractionError ? `: ${error.message}` : ` (${error?.name || 'Error'})`}`);
+        const protocolTimedOut = !(error instanceof ExtractionError) && isProtocolTimeoutError(error);
+        const status = error instanceof ExtractionError ? error.status : (protocolTimedOut ? 504 : 500);
+        const code = error instanceof ExtractionError ? error.code : (protocolTimedOut ? 'BROWSER_PROTOCOL_TIMEOUT' : 'EXTRACTION_FAILED');
+        console.error(`[${requestId}] ${code}${error instanceof ExtractionError ? `: ${error.message}` : ` (${error?.name || 'Error'})`} durationMs=${Date.now() - extractionStartedAt}`);
         sendProgress('extraction_error', { code });
         return sendExtractionResponse(status, {
             success: false,
@@ -1143,9 +1367,12 @@ app.post('/api/extract', extractionSecurityHeaders, rejectCrossOriginBrowserRequ
             requestId,
             error: error instanceof ExtractionError
                 ? error.message
-                : 'The conversation could not be extracted due to an unexpected server error.'
+                : (protocolTimedOut
+                    ? 'This public conversation is unusually large and the browser hit a processing timeout. Please try the link again.'
+                    : 'The conversation could not be extracted due to an unexpected server error.')
         });
     } finally {
+        if (progressHeartbeat) clearInterval(progressHeartbeat);
         if (browser) {
             try {
                 if (remoteBrowser) browser.disconnect();

@@ -31,8 +31,21 @@ test('Claude provider evidence selectors cover the current public-share DOM', ()
 test('server has a dedicated rich Claude collector before generic page.content fallback', () => {
   assert.match(serverSource, /async function collectClaudeHTML\(/);
   assert.match(serverSource, /data-c2p-claude-turn/);
-  assert.match(serverSource, /provider === 'claude'[\s\S]*collectClaudeHTML\(page, url\)/);
+  assert.match(serverSource, /provider === 'claude'[\s\S]*collectClaudeHTML\(page, url, \{ expectedMessages \}\)/);
   assert.match(serverSource, /font-claude-response\|font-claude-message\|standard-markdown\|progressive-markdown/);
+});
+
+
+test('Claude long-conversation collector avoids one giant Runtime.callFunctionOn', () => {
+  const start = serverSource.indexOf('async function collectClaudeHTML');
+  const end = serverSource.indexOf('async function collectGeminiHTML', start);
+  const collector = serverSource.slice(start, end);
+
+  assert.match(serverSource, /protocolTimeout: PUPPETEER_PROTOCOL_TIMEOUT_MS/);
+  assert.match(collector, /CLAUDE_CAPTURE_BATCH_SIZE/);
+  assert.match(collector, /readFinalChunk/);
+  assert.match(collector, /CLAUDE_COLLECTION_BUDGET_MS/);
+  assert.doesNotMatch(collector, /\.innerText/);
 });
 
 test('Claude parser recognizes dedicated collector and current live DOM selectors', () => {
