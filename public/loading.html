@@ -553,21 +553,34 @@ clean(payload) {
       const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       const startedAt = Date.now();
       const minimumVisibleMs = 700;
+      const minimumStatusReadMs = 2200;
       const stageTimers = new Set();
       let currentStage = '';
+      let currentStageStartedAt = Date.now();
       let currentText = baseEl?.textContent || '';
+      let statusShownAt = Date.now();
       let transitionToken = 0;
 
       const providerNames = { claude: 'Claude', chatgpt: 'ChatGPT', gemini: 'Gemini', grok: 'Grok', qwen: 'Qwen' };
 
       const stageCopy = {
+        // Keep the first thing the user sees stable. Fast technical stages should not
+        // turn the status line into a slot machine before anyone can read it.
         browser_starting: {
-          text: () => 'Firin’ up the little browser...',
-          quips: [[6500, () => 'Wakin’ up the horses...'], [14000, () => 'This browser takes its coffee slow.']]
+          text: () => 'Opening the link...',
+          quips: [
+            [7000, () => 'Firin’ up the little browser...'],
+            [15000, () => 'Wakin’ up the horses...'],
+            [28000, () => 'This browser takes its coffee slow.']
+          ]
         },
         opening_link: {
           text: () => 'Opening the link...',
-          quips: [[7000, () => 'Knock knock, partner...'], [15000, ({ provider }) => `${providerLabel(provider)} is takin’ the scenic route.`]]
+          quips: [
+            [7000, () => 'Knock knock, partner...'],
+            [15000, ({ provider }) => `${providerLabel(provider)} is takin’ the scenic route.`],
+            [28000, () => 'Front porch light’s on. Just waitin’ for somebody to answer.']
+          ]
         },
         waiting_for_conversation: {
           text: () => 'Reading the chat...',
@@ -575,15 +588,25 @@ clean(payload) {
             [6000, () => 'Hold your horses, partner...'],
             [12000, ({ provider }) => `Still waitin’ on ${providerLabel(provider)} to hand over the goods...`],
             [19000, () => 'Good Lord, did y’all write the whole Bible in here?'],
-            [28000, () => 'That is one big ol’ conversation. Still on it.']
+            [30000, () => 'That is one big ol’ conversation. Still on it.'],
+            [44000, () => 'This one’s takin’ the long road home...'],
+            [62000, () => 'Still here, partner. Ain’t lost your chat.']
           ]
         },
         collecting_conversation: {
           text: () => 'Roundin’ up your messages...',
           quips: [
-            [6500, () => 'This chat’s got some acreage.'],
-            [13000, () => 'Reckon this conversation came with a sequel.'],
-            [21000, () => 'This ain’t a chat. It’s the whole dang ranch.']
+            [7000, () => 'This chat’s got some acreage.'],
+            [15000, () => 'Reckon this conversation came with a sequel.'],
+            [24000, () => 'This ain’t a chat. It’s the whole dang ranch.'],
+            [36000, ({ provider }) => providerMegaChatJoke(provider)],
+            [51000, () => 'Still wranglin’ messages. This herd keeps goin’.'],
+            [69000, () => 'Nearly got the whole herd through the gate...'],
+            [90000, () => 'I’ve seen shorter cattle drives. Still workin’.'],
+            [118000, () => 'No message left behind, partner.'],
+            [155000, () => 'At this point, I should’ve packed a lunch.'],
+            [205000, () => 'Still with ya, partner. Big chats take the scenic route.'],
+            [265000, () => 'This conversation’s got its own dang ZIP code.']
           ]
         },
         retrying_provider: {
@@ -591,24 +614,45 @@ clean(payload) {
           quips: [
             [7500, () => 'Givin’ it one more good ol’ Texas try.'],
             [15000, () => 'C’mon now, don’t make me get the lasso.'],
-            [24000, () => 'Stubborn little page, ain’t it? I’m still wranglin’ it.']
+            [24000, () => 'Stubborn little page, ain’t it? I’m still wranglin’ it.'],
+            [38000, () => 'Ain’t quittin’ on ya now, partner.']
           ]
         },
-        // These final phases can be very short. A small display delay keeps the UI
-        // from firing several messages back-to-back when extraction finishes fast.
+        // Finalization is often extremely fast, so only surface it if it lasts long
+        // enough to be meaningful. If it does last, it gets its own slow-burn quips.
         finalizing_extraction: {
           text: () => 'Almost there, partner...',
-          displayDelay: 350,
-          quips: [[7000, () => 'Packin’ up the last few bits...']]
+          displayDelay: 500,
+          quips: [
+            [7000, () => 'Packin’ up the last few bits...'],
+            [16000, () => 'Tyin’ the last knot...'],
+            [28000, () => 'Just makin’ sure nothin’ fell off the wagon.']
+          ]
         },
         extraction_complete: {
           text: () => 'Loadin’ your conversation...',
           quips: []
         }
       };
-
       function providerLabel(provider) {
         return providerNames[String(provider || '').toLowerCase()] || 'the site';
+      }
+
+      function providerMegaChatJoke(provider) {
+        switch (String(provider || '').toLowerCase()) {
+          case 'chatgpt':
+            return 'This ain’t ChatGPT anymore. It’s EncyclopediaGPT, partner.';
+          case 'claude':
+            return 'Partner, this ain’t Claude anymore. This here’s BigClaude.';
+          case 'gemini':
+            return 'Gemini? Shoot, this thing’s a whole dang constellation.';
+          case 'grok':
+            return 'Grok? More like Big Ol’ Grok at this point, partner.';
+          case 'qwen':
+            return 'Qwen brought the whole dang library along for the ride.';
+          default:
+            return 'This chat just graduated to encyclopedia status, partner.';
+        }
       }
 
       function clearStageTimers() {
@@ -618,7 +662,7 @@ clean(payload) {
 
       function setStatus(text, { immediate = false } = {}) {
         const next = String(text || '').trim();
-        if (!next || next === currentText || !statusEl || !baseEl || !shineEl) return;
+        if (!next || next === currentText || !statusEl || !baseEl || !shineEl) return false;
         currentText = next;
         const token = ++transitionToken;
         const apply = () => {
@@ -627,35 +671,54 @@ clean(payload) {
           shineEl.textContent = next;
           statusEl.setAttribute('aria-label', next);
           statusEl.classList.remove('is-changing');
+          statusShownAt = Date.now();
         };
-        if (immediate || reduceMotion) return apply();
+        if (immediate || reduceMotion) {
+          apply();
+          return true;
+        }
         statusEl.classList.add('is-changing');
         window.setTimeout(apply, 120);
+        return true;
       }
 
       function enterStage(stage, context = {}) {
         if (!stageCopy[stage] || stage === currentStage) return;
         currentStage = stage;
+        currentStageStartedAt = Date.now();
         clearStageTimers();
         const config = stageCopy[stage];
 
         const showStage = () => {
           if (currentStage !== stage) return;
-          setStatus(config.text(context));
+          const changed = setStatus(config.text(context));
+          const primaryVisibleAt = changed ? Date.now() + (reduceMotion ? 0 : 120) : statusShownAt;
+
           config.quips.forEach(([delay, message]) => {
+            // Quips are synchronized to how long THIS REAL backend stage has lasted,
+            // not to a global playlist. Still guarantee the primary status can be read.
+            const stageElapsed = Date.now() - currentStageStartedAt;
+            const remainingForStage = Math.max(0, delay - stageElapsed);
+            const remainingForReading = Math.max(0, minimumStatusReadMs - (Date.now() - primaryVisibleAt));
+            const wait = Math.max(remainingForStage, remainingForReading);
             const timer = window.setTimeout(() => {
               stageTimers.delete(timer);
               if (currentStage === stage) setStatus(message(context));
-            }, delay);
+            }, wait);
             stageTimers.add(timer);
           });
         };
 
-        if (config.displayDelay) {
+        // Do not flash through genuine-but-millisecond backend stages. We never queue
+        // stale stages: if the backend advances before this fires, the timer is cleared
+        // and only the latest real stage can become visible.
+        const unreadMs = Math.max(0, minimumStatusReadMs - (Date.now() - statusShownAt));
+        const wait = Math.max(config.displayDelay || 0, unreadMs);
+        if (wait > 0) {
           const timer = window.setTimeout(() => {
             stageTimers.delete(timer);
             showStage();
-          }, config.displayDelay);
+          }, wait);
           stageTimers.add(timer);
         } else {
           showStage();
@@ -668,11 +731,11 @@ clean(payload) {
         clearStageTimers();
         currentStage = 'ready';
         setStatus('Conversation’s ready. Yeehaw.');
-        await delay(reduceMotion ? 120 : 700);
-        setStatus('Done deal. Toss a buck in this human’s tip jar if ya can. 🤠');
         await delay(reduceMotion ? 120 : 1100);
+        setStatus('Done deal. Toss a buck in this human’s tip jar if ya can. 🤠');
+        await delay(reduceMotion ? 120 : 1600);
         setStatus('Loadin’ the next stop...');
-        await delay(reduceMotion ? 80 : 320);
+        await delay(reduceMotion ? 80 : 520);
       }
 
       function finishWithRedirect(path) {
