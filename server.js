@@ -1,5 +1,4 @@
 const express = require('express');
-const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const puppeteer = require('puppeteer-extra');
@@ -41,7 +40,6 @@ app.use(helmet({
     crossOriginEmbedderPolicy: false,
     crossOriginResourcePolicy: false,
 }));
-app.use(cors());
 app.use(express.json({ limit: '16kb' }));
 
 // Serve os arquivos do Frontend automaticamente (o index.html)
@@ -583,11 +581,60 @@ function delay(ms) {
 
 function safeUrlForLog(value) {
     try {
-        const url = new URL(value);
-        return `${url.origin}${url.pathname}`.slice(0, 240);
+        // Share IDs and provider resource IDs commonly live in the path/query.
+        // Logs only need the origin for diagnostics; never persist the secret path.
+        return new URL(value).origin.slice(0, 160);
     } catch (_) {
-        return String(value || '').slice(0, 240);
+        return '[invalid-url]';
     }
+}
+
+function extractionSecurityHeaders(req, res, next) {
+    // Extraction responses can contain the full conversation HTML. Explicitly forbid
+    // browsers, reverse proxies, and CDNs from storing either JSON or NDJSON results.
+    res.set({
+        'Cache-Control': 'no-store, private, max-age=0',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'CDN-Cache-Control': 'no-store',
+        'Surrogate-Control': 'no-store',
+        'Cross-Origin-Resource-Policy': 'same-origin'
+    });
+    res.vary('Accept');
+    next();
+}
+
+function rejectCrossOriginBrowserRequests(req, res, next) {
+    // No CORS is enabled anywhere in the app. Fetch Metadata gives modern browsers
+    // an additional same-origin gate before Puppeteer work can start.
+    const fetchSite = String(req.get('sec-fetch-site') || '').toLowerCase();
+    if (fetchSite && fetchSite !== 'same-origin') {
+        return res.status(403).json({ success: false, code: 'CROSS_ORIGIN_BLOCKED', error: 'Cross-origin extraction requests are not allowed.' });
+    }
+
+    // Origin is checked independently for browsers that send it. Requests without
+    // browser metadata (for example server-to-server diagnostics) remain valid.
+    const origin = String(req.get('origin') || '').trim();
+    if (!origin) return next();
+
+    let parsedOrigin;
+    try {
+        parsedOrigin = new URL(origin).origin;
+    } catch (_) {
+        return res.status(403).json({ success: false, code: 'CROSS_ORIGIN_BLOCKED', error: 'Cross-origin extraction requests are not allowed.' });
+    }
+
+    const forwardedProto = String(req.get('x-forwarded-proto') || '')
+        .split(',')[0]
+        .trim();
+    const protocol = forwardedProto || req.protocol;
+    const expectedOrigin = `${protocol}://${req.get('host')}`;
+
+    if (parsedOrigin !== expectedOrigin) {
+        return res.status(403).json({ success: false, code: 'CROSS_ORIGIN_BLOCKED', error: 'Cross-origin extraction requests are not allowed.' });
+    }
+
+    next();
 }
 
 function createNetworkCapture(page, requestId) {
@@ -632,7 +679,7 @@ function createNetworkCapture(page, requestId) {
             if (payloads.length > 40) payloads.shift();
         })().catch((error) => {
             if (process.env.DEBUG_EXTRACTION === '1') {
-                console.log(`[${requestId}] response capture error: ${error.message}`);
+                console.log(`[${requestId}] response capture error: ${error?.name || 'Error'}`);
             }
         });
 
@@ -849,8 +896,9 @@ async function collectPageHTML(page, provider, url) {
 // ==========================================
 // ROTA DE EXTRAÇÃO (API)
 // ==========================================
-app.post('/api/extract', limiter, async (req, res) => {
+app.post('/api/extract', extractionSecurityHeaders, rejectCrossOriginBrowserRequests, limiter, async (req, res) => {
     const requestId = crypto.randomUUID().slice(0, 8);
+    const wantsProgressStream = String(req.get('accept') || '').includes('application/x-ndjson');
     const validation = validateShareUrl(req.body?.url);
     if (validation.error) {
         return res.status(400).json({ success: false, code: 'INVALID_SHARE_URL', error: validation.error, requestId });
@@ -860,8 +908,34 @@ app.post('/api/extract', limiter, async (req, res) => {
     let browser;
     let remoteBrowser = false;
 
+    if (wantsProgressStream) {
+        res.status(200);
+        res.set({
+            'Content-Type': 'application/x-ndjson; charset=utf-8',
+            'Cache-Control': 'no-store, private, max-age=0, no-transform',
+            'X-Accel-Buffering': 'no'
+        });
+        if (typeof res.flushHeaders === 'function') res.flushHeaders();
+    }
+
+    const sendProgress = (stage, extra = {}) => {
+        if (!wantsProgressStream || res.writableEnded) return;
+        res.write(`${JSON.stringify({ type: 'progress', stage, provider, ...extra })}\n`);
+    };
+
+    const sendExtractionResponse = (status, payload) => {
+        if (!wantsProgressStream) return res.status(status).json(payload);
+        if (!res.writableEnded) {
+            res.write(`${JSON.stringify({ type: 'result', status, ...payload })}\n`);
+            res.end();
+        }
+    };
+
+    sendProgress('validated');
+
     try {
         console.log(`[${requestId}] extracting ${provider} share from ${validation.parsedUrl.hostname}`);
+        sendProgress('browser_starting');
 
         const launchArgs = [
             '--no-sandbox',
@@ -883,6 +957,7 @@ app.post('/api/extract', limiter, async (req, res) => {
         }
 
         const page = await browser.newPage();
+        sendProgress('browser_ready');
         if (process.env.EXTRACTION_PROXY_USERNAME && process.env.EXTRACTION_PROXY_PASSWORD) {
             await page.authenticate({
                 username: process.env.EXTRACTION_PROXY_USERNAME,
@@ -915,16 +990,18 @@ app.post('/api/extract', limiter, async (req, res) => {
         const networkCapture = createNetworkCapture(page, requestId);
         const pageErrors = [];
         page.on('pageerror', (error) => {
-            pageErrors.push(error.message);
+            pageErrors.push(error?.name || 'PageError');
             if (pageErrors.length > 8) pageErrors.shift();
         });
         if (process.env.DEBUG_EXTRACTION === '1') {
-            page.on('console', message => console.log(`[${requestId}] browser:${message.type()} ${message.text().slice(0, 500)}`));
+            page.on('console', message => console.log(`[${requestId}] browser:${message.type()}`));
         }
 
         let navigationResponse;
+        sendProgress('opening_link');
         try {
             navigationResponse = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            sendProgress('link_opened');
         } catch (error) {
             throw new ExtractionError(`The ${provider} share page did not finish loading.`, {
                 status: 504,
@@ -932,9 +1009,11 @@ app.post('/api/extract', limiter, async (req, res) => {
             });
         }
 
+        sendProgress('waiting_for_conversation');
         await waitForConversation(page, provider, provider === 'gemini' ? 26000 : 18000);
         await networkCapture.flush();
 
+        sendProgress('inspecting_conversation');
         let evidence = await inspectConversationDOM(page, provider);
         let networkMessages = collectStructuredMessages(networkCapture.payloads);
         let embeddedMessages = [];
@@ -947,6 +1026,7 @@ app.post('/api/extract', limiter, async (req, res) => {
         // Provider-specific collectors can trigger lazy hydration and produce a
         // stable snapshot even when the shell initially exposes only one side.
         if (!hasUsableDomEvidence(evidence) && !hasUsableNetworkEvidence(fallbackMessages)) {
+            sendProgress('collecting_conversation');
             html = await collectPageHTML(page, provider, url);
             htmlEvidence = inspectCollectedHTMLEvidence(html, provider);
             embeddedMessages = collectEmbeddedStructuredMessages(html);
@@ -964,6 +1044,7 @@ app.post('/api/extract', limiter, async (req, res) => {
         // on retry we always run the provider collector before declaring failure.
         if (!hasConversationEvidence && !state) {
             console.log(`[${requestId}] no complete conversation evidence after first load; retrying hydration once`);
+            sendProgress('retrying_provider');
             try {
                 navigationResponse = await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }) || navigationResponse;
                 await waitForConversation(page, provider, provider === 'gemini' ? 18000 : 11000);
@@ -987,6 +1068,8 @@ app.post('/api/extract', limiter, async (req, res) => {
             }
         }
 
+        if (hasConversationEvidence) sendProgress('conversation_found');
+
         if (state === 'blocked') {
             throw new ExtractionError(
                 `${provider} is blocking automated access to this public share page right now. Please try again later or from a different deployment network.`,
@@ -1001,14 +1084,18 @@ app.post('/api/extract', limiter, async (req, res) => {
         }
 
         if (!hasConversationEvidence) {
-            console.warn(`[${requestId}] no messages: status=${status} final=${safeUrlForLog(evidence?.url)} title=${JSON.stringify(evidence?.title || '')} dom=${evidence?.users || 0}/${evidence?.assistants || 0} collected=${htmlEvidence.users}/${htmlEvidence.assistants} apiFailures=${JSON.stringify(networkCapture.failedApiResponses)} pageErrors=${JSON.stringify(pageErrors)}`);
+            console.warn(`[${requestId}] no messages: status=${status} finalOrigin=${safeUrlForLog(evidence?.url)} dom=${evidence?.users || 0}/${evidence?.assistants || 0} collected=${htmlEvidence.users}/${htmlEvidence.assistants} apiFailures=${JSON.stringify(networkCapture.failedApiResponses)} pageErrors=${JSON.stringify(pageErrors)}`);
             throw new ExtractionError(
                 `The public ${provider} page opened, but its conversation data was not delivered to the extractor. The provider may have changed its page structure or blocked datacenter browsers.`,
                 { status: 502, code: 'CONVERSATION_NOT_DELIVERED' }
             );
         }
 
-        if (!html) html = await collectPageHTML(page, provider, url);
+        if (!html) {
+            sendProgress('collecting_conversation');
+            html = await collectPageHTML(page, provider, url);
+        }
+        sendProgress('finalizing_extraction');
         htmlEvidence = inspectCollectedHTMLEvidence(html, provider);
         await networkCapture.flush();
         networkMessages = collectStructuredMessages(networkCapture.payloads);
@@ -1032,7 +1119,8 @@ app.post('/api/extract', limiter, async (req, res) => {
             ? 'collected-html'
             : (hasUsableDomEvidence(evidence) ? 'dom' : 'structured-fallback');
         console.log(`[${requestId}] extraction succeeded provider=${provider} dom=${evidence.users}/${evidence.assistants} collected=${htmlEvidence.users}/${htmlEvidence.assistants} fallbackMessages=${fallbackMessages.length}`);
-        return res.json({
+        sendProgress('extraction_complete', { source });
+        return sendExtractionResponse(200, {
             success: true,
             provider,
             html,
@@ -1047,8 +1135,9 @@ app.post('/api/extract', limiter, async (req, res) => {
     } catch (error) {
         const status = error instanceof ExtractionError ? error.status : 500;
         const code = error instanceof ExtractionError ? error.code : 'EXTRACTION_FAILED';
-        console.error(`[${requestId}] ${code}: ${error.message}`);
-        return res.status(status).json({
+        console.error(`[${requestId}] ${code}${error instanceof ExtractionError ? `: ${error.message}` : ` (${error?.name || 'Error'})`}`);
+        sendProgress('extraction_error', { code });
+        return sendExtractionResponse(status, {
             success: false,
             code,
             requestId,

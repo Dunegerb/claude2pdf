@@ -189,12 +189,15 @@
       stroke-width: 1;
     }
 
-    /* Container do Texto Brilhante */
+    /* Status dinâmico: base + brilho dividem a mesma célula da grid.
+       Isso mantém os dois textos pixel-perfect mesmo quando a frase quebra no mobile. */
     .thinking-container {
       margin-top: 24px;
+      width: min(560px, calc(100vw - 28px));
+      min-height: 42px;
       display: flex;
       justify-content: center;
-      align-items: center;
+      align-items: flex-start;
     }
 
     .shiny-text {
@@ -203,36 +206,45 @@
       text-align: center;
       text-decoration: none;
       color: inherit;
+      opacity: 1;
+      transform: translateY(0);
+      transition: opacity 120ms ease, transform 120ms ease;
+    }
+
+    .shiny-text.is-changing {
+      opacity: 0;
+      transform: translateY(2px);
     }
 
     .shiny-text__wrap {
-      position: relative;
-      display: inline-block;
+      display: grid;
+      grid-template-areas: "status";
+      place-items: start center;
+      width: 100%;
     }
 
     .shiny-text__base,
     .shiny-text__shine {
+      grid-area: status;
+      display: block;
+      width: 100%;
+      max-width: 560px;
       font-family: var(--font-sans);
       font-size: var(--font-size);
       font-style: normal;
       font-weight: var(--font-weight);
       letter-spacing: var(--letter-spacing);
       line-height: var(--line-height);
-      white-space: nowrap;
+      white-space: normal;
+      text-align: center;
+      text-wrap: balance;
     }
 
-    .shiny-text__base {
-      display: inline-block;
-      color: var(--text-color);
-    }
+    .shiny-text__base { color: var(--text-color); }
 
     .shiny-text__shine {
-      position: absolute;
-      top: 0;
-      left: 0;
       color: transparent;
       pointer-events: none;
-      white-space: nowrap;
       background-image: linear-gradient(
         var(--shine-angle),
         transparent 0%,
@@ -250,6 +262,11 @@
       will-change: background-position;
       animation: shiny-text-sweep var(--shine-duration) linear infinite;
       animation-delay: var(--shine-delay);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .shiny-text { transition: none; }
+      .shiny-text__shine { animation: none; }
     }
 
     /* Animações CSS */
@@ -374,10 +391,10 @@ clean(payload) {
 
     <!-- Animação do Shiny Text de Carregamento -->
     <div class="thinking-container">
-      <span class="shiny-text" aria-label="Converting">
+      <span class="shiny-text" aria-label="Opening the link..." aria-live="polite">
         <span class="shiny-text__wrap">
-          <span class="shiny-text__base">Converting</span>
-          <span class="shiny-text__shine" aria-hidden="true">Converting</span>
+          <span class="shiny-text__base">Opening the link...</span>
+          <span class="shiny-text__shine" aria-hidden="true">Opening the link...</span>
         </span>
       </span>
     </div>
@@ -523,46 +540,223 @@ clean(payload) {
   <script src="/parser.js"></script>
   <script>
     (() => {
-      const keys = window.Claude2PDF.STORAGE_KEYS;
+      const parser = window.Claude2PDF;
+      if (!parser) {
+        console.error('Claude2PDF parser failed to load.');
+        return;
+      }
+
+      const keys = parser.STORAGE_KEYS;
+      const statusEl = document.querySelector('.shiny-text');
+      const baseEl = document.querySelector('.shiny-text__base');
+      const shineEl = document.querySelector('.shiny-text__shine');
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       const startedAt = Date.now();
       const minimumVisibleMs = 700;
+      const stageTimers = new Set();
+      let currentStage = '';
+      let currentText = baseEl?.textContent || '';
+      let transitionToken = 0;
+
+      const providerNames = { claude: 'Claude', chatgpt: 'ChatGPT', gemini: 'Gemini', grok: 'Grok', qwen: 'Qwen' };
+
+      const stageCopy = {
+        browser_starting: {
+          text: () => 'Firin’ up the little browser...',
+          quips: [[6500, () => 'Wakin’ up the horses...'], [14000, () => 'This browser takes its coffee slow.']]
+        },
+        opening_link: {
+          text: () => 'Opening the link...',
+          quips: [[7000, () => 'Knock knock, partner...'], [15000, ({ provider }) => `${providerLabel(provider)} is takin’ the scenic route.`]]
+        },
+        waiting_for_conversation: {
+          text: () => 'Reading the chat...',
+          quips: [
+            [6000, () => 'Hold your horses, partner...'],
+            [12000, ({ provider }) => `Still waitin’ on ${providerLabel(provider)} to hand over the goods...`],
+            [19000, () => 'Good Lord, did y’all write the whole Bible in here?'],
+            [28000, () => 'That is one big ol’ conversation. Still on it.']
+          ]
+        },
+        collecting_conversation: {
+          text: () => 'Roundin’ up your messages...',
+          quips: [
+            [6500, () => 'This chat’s got some acreage.'],
+            [13000, () => 'Reckon this conversation came with a sequel.'],
+            [21000, () => 'This ain’t a chat. It’s the whole dang ranch.']
+          ]
+        },
+        retrying_provider: {
+          text: () => 'Well dang, that page is playin’ hard to get...',
+          quips: [
+            [7500, () => 'Givin’ it one more good ol’ Texas try.'],
+            [15000, () => 'C’mon now, don’t make me get the lasso.'],
+            [24000, () => 'Stubborn little page, ain’t it? I’m still wranglin’ it.']
+          ]
+        },
+        // These final phases can be very short. A small display delay keeps the UI
+        // from firing several messages back-to-back when extraction finishes fast.
+        finalizing_extraction: {
+          text: () => 'Almost there, partner...',
+          displayDelay: 350,
+          quips: [[7000, () => 'Packin’ up the last few bits...']]
+        },
+        extraction_complete: {
+          text: () => 'Loadin’ your conversation...',
+          quips: []
+        }
+      };
+
+      function providerLabel(provider) {
+        return providerNames[String(provider || '').toLowerCase()] || 'the site';
+      }
+
+      function clearStageTimers() {
+        stageTimers.forEach(clearTimeout);
+        stageTimers.clear();
+      }
+
+      function setStatus(text, { immediate = false } = {}) {
+        const next = String(text || '').trim();
+        if (!next || next === currentText || !statusEl || !baseEl || !shineEl) return;
+        currentText = next;
+        const token = ++transitionToken;
+        const apply = () => {
+          if (token !== transitionToken) return;
+          baseEl.textContent = next;
+          shineEl.textContent = next;
+          statusEl.setAttribute('aria-label', next);
+          statusEl.classList.remove('is-changing');
+        };
+        if (immediate || reduceMotion) return apply();
+        statusEl.classList.add('is-changing');
+        window.setTimeout(apply, 120);
+      }
+
+      function enterStage(stage, context = {}) {
+        if (!stageCopy[stage] || stage === currentStage) return;
+        currentStage = stage;
+        clearStageTimers();
+        const config = stageCopy[stage];
+
+        const showStage = () => {
+          if (currentStage !== stage) return;
+          setStatus(config.text(context));
+          config.quips.forEach(([delay, message]) => {
+            const timer = window.setTimeout(() => {
+              stageTimers.delete(timer);
+              if (currentStage === stage) setStatus(message(context));
+            }, delay);
+            stageTimers.add(timer);
+          });
+        };
+
+        if (config.displayDelay) {
+          const timer = window.setTimeout(() => {
+            stageTimers.delete(timer);
+            showStage();
+          }, config.displayDelay);
+          stageTimers.add(timer);
+        } else {
+          showStage();
+        }
+      }
+
+      const delay = (ms) => new Promise(resolve => window.setTimeout(resolve, ms));
+
+      async function showReadySequence() {
+        clearStageTimers();
+        currentStage = 'ready';
+        setStatus('Conversation’s ready. Yeehaw.');
+        await delay(reduceMotion ? 120 : 700);
+        setStatus('Done deal. Toss a buck in this human’s tip jar if ya can. 🤠');
+        await delay(reduceMotion ? 120 : 1100);
+        setStatus('Loadin’ the next stop...');
+        await delay(reduceMotion ? 80 : 320);
+      }
 
       function finishWithRedirect(path) {
         const elapsed = Date.now() - startedAt;
         const wait = Math.max(0, minimumVisibleMs - elapsed);
-        setTimeout(() => { window.location.href = path; }, wait);
+        window.setTimeout(() => { window.location.href = path; }, wait);
+      }
+
+      function parseJSONLine(line) {
+        try { return JSON.parse(line); } catch (_) { return null; }
+      }
+
+      async function readExtractionResponse(response) {
+        const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+        if (!contentType.includes('application/x-ndjson') || !response.body?.getReader) {
+          const data = await response.json().catch(() => ({}));
+          return { ok: response.ok, status: response.status, data };
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let result = null;
+        while (true) {
+          const { value, done } = await reader.read();
+          buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            const event = parseJSONLine(line);
+            if (!event) continue;
+            if (event.type === 'progress') enterStage(event.stage, event);
+            if (event.type === 'result') result = event;
+          }
+          if (done) break;
+        }
+        if (buffer.trim()) {
+          const event = parseJSONLine(buffer);
+          if (event?.type === 'progress') enterStage(event.stage, event);
+          if (event?.type === 'result') result = event;
+        }
+        if (!result) return { ok: false, status: 500, data: { success: false, error: 'The extraction stream ended before a result was returned.' } };
+        return { ok: result.status >= 200 && result.status < 300 && result.success === true, status: result.status || 500, data: result };
+      }
+
+      async function extractConversation(sourceUrl) {
+        const response = await fetch('/api/extract', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/x-ndjson, application/json' },
+          body: JSON.stringify({ url: sourceUrl }),
+          cache: 'no-store',
+          credentials: 'same-origin',
+          referrerPolicy: 'no-referrer'
+        });
+        return readExtractionResponse(response);
       }
 
       async function convert() {
         const sourceUrl = sessionStorage.getItem(keys.sourceUrl);
-        if (!sourceUrl) {
-          window.location.href = '/';
-          return;
-        }
-
+        if (!sourceUrl) return void (window.location.href = '/');
         try {
-          const response = await fetch('/api/extract', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: sourceUrl })
-          });
-          const data = await response.json().catch(() => ({}));
-          if (!response.ok || !data.success || !data.html) {
+          const { ok, data } = await extractConversation(sourceUrl);
+          if (!ok || !data.success || !data.html) {
             const reference = data.requestId ? ` Reference: ${data.requestId}.` : '';
             throw new Error(`${data.error || 'Unable to extract this public share link.'}${reference}`);
           }
 
+          enterStage('extraction_complete', data);
+          if (!reduceMotion) await new Promise(resolve => requestAnimationFrame(() => resolve()));
           let conversation;
           try {
-            conversation = window.Claude2PDF.parseAIConversationHTML(data.html, sourceUrl);
-          } catch (parseError) {
+            conversation = parser.parseAIConversationHTML(data.html, sourceUrl);
+          } catch (_) {
             const reference = data.diagnostics?.requestId ? ` Reference: ${data.diagnostics.requestId}.` : '';
             throw new Error(`The page was loaded, but the conversation format could not be parsed.${reference}`);
           }
+
           sessionStorage.setItem(keys.conversation, JSON.stringify(conversation));
           sessionStorage.removeItem(keys.error);
+          await showReadySequence();
           finishWithRedirect('/support.html');
         } catch (error) {
+          clearStageTimers();
           sessionStorage.setItem(keys.error, error.message || 'Conversion failed.');
           finishWithRedirect('/');
         }
