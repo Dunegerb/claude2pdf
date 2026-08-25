@@ -28,7 +28,7 @@ test('generic long-conversation collector bounds DOM cloning and final CDP paylo
   assert.match(collector, /PROVIDER_COLLECTION_BUDGET_MS/);
   assert.match(collector, /captureBatch/);
   assert.match(collector, /readFinalChunk/);
-  assert.match(collector, /1400000/);
+  assert.match(collector, /PROVIDER_FINAL_CHUNK_CHARS/);
   assert.doesNotMatch(collector, /\.innerText/);
 });
 
@@ -47,9 +47,21 @@ test('Grok no longer relies only on generic scroll plus page.content', () => {
   assert.match(collectPage, /provider === 'grok'[\s\S]*collectGrokHTML\(page, url, \{ expectedMessages \}\)/);
 });
 
-test('protocol-timeout structured fallback applies to every provider', () => {
+test('protocol timeout never falls through to a second full page.content call', () => {
   const collectPage = sliceBetween('async function collectPageHTML', '// ==========================================\n// ROTA DE EXTRAÇÃO');
-  assert.match(collectPage, /expectedMessages >= 2 && isProtocolTimeoutError\(error\)/);
+  assert.match(collectPage, /if \(isProtocolTimeoutError\(error\)\)/);
+  assert.match(collectPage, /if \(expectedMessages >= 2\)/);
   assert.match(collectPage, /c2p-\$\{provider\}-structured-fallback/);
-  assert.doesNotMatch(collectPage, /provider === 'claude' && expectedMessages >= 2/);
+  assert.match(collectPage, /throw error/);
+  assert.doesNotMatch(collectPage, /await\s+page\.content\(\)/);
+});
+
+test('ChatGPT collector uses short in-browser CDP deadlines and a light retry path', () => {
+  const collector = sliceBetween('async function collectChunkedProviderHTML', 'async function collectChatGPTHTML');
+  assert.match(collector, /Runtime\.evaluate/);
+  assert.match(collector, /PROVIDER_COLLECTOR_CALL_TIMEOUT_MS/);
+  assert.match(collector, /CHATGPT_CAPTURE_BATCH_SIZE/);
+  assert.match(collector, /captureBatchLight/);
+  assert.match(collector, /serializeChatGPTTurn/);
+  assert.doesNotMatch(collector, /document\.querySelectorAll\(['\"]#thread button, main button/);
 });

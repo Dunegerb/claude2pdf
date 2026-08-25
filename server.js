@@ -32,11 +32,18 @@ function boundedEnvInt(name, fallback, min, max) {
 // single CDP serialization expensive, so keep a larger safety margin. All long-
 // conversation collectors below are deliberately split into short CDP calls so
 // this is a fallback, not the primary long-conversation strategy.
-const PUPPETEER_PROTOCOL_TIMEOUT_MS = boundedEnvInt('PUPPETEER_PROTOCOL_TIMEOUT_MS', 300000, 60000, 600000);
+const PUPPETEER_PROTOCOL_TIMEOUT_MS = boundedEnvInt('PUPPETEER_PROTOCOL_TIMEOUT_MS', 300000, 60000, 300000);
 const CLAUDE_COLLECTION_BUDGET_MS = boundedEnvInt('CLAUDE_COLLECTION_BUDGET_MS', 150000, 30000, 300000);
 const CLAUDE_CAPTURE_BATCH_SIZE = boundedEnvInt('CLAUDE_CAPTURE_BATCH_SIZE', 24, 4, 64);
 const PROVIDER_COLLECTION_BUDGET_MS = boundedEnvInt('PROVIDER_COLLECTION_BUDGET_MS', 150000, 30000, 300000);
 const PROVIDER_CAPTURE_BATCH_SIZE = boundedEnvInt('PROVIDER_CAPTURE_BATCH_SIZE', 20, 4, 64);
+// ChatGPT can expose a very large fully-mounted thread. Keep each V8/CDP unit
+// intentionally tiny so one pathological turn cannot monopolize the browser.
+// The per-call timeout is enforced by Runtime.evaluate inside Chrome, rather
+// than relying only on Puppeteer's much larger connection-wide protocol timeout.
+const CHATGPT_CAPTURE_BATCH_SIZE = boundedEnvInt('CHATGPT_CAPTURE_BATCH_SIZE', 6, 1, 16);
+const PROVIDER_COLLECTOR_CALL_TIMEOUT_MS = boundedEnvInt('PROVIDER_COLLECTOR_CALL_TIMEOUT_MS', 12000, 3000, 45000);
+const PROVIDER_FINAL_CHUNK_CHARS = boundedEnvInt('PROVIDER_FINAL_CHUNK_CHARS', 360000, 100000, 900000);
 const STREAM_HTML_CHUNK_SIZE = boundedEnvInt('STREAM_HTML_CHUNK_SIZE', 262144, 65536, 1048576);
 
 app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS || 1));
@@ -114,15 +121,30 @@ async function collectChunkedProviderHTML(page, provider, url, { expectedMessage
         function getScrollTarget() {
             const explicit = document.querySelector('[data-scroll-root]');
             if (explicit) return explicit;
+
+            // Avoid a broad querySelectorAll('[class*="scroll"]') on giant pages:
+            // it can inspect thousands of descendants just to discover the scroll
+            // root. A handful of likely containers is enough and keeps collector
+            // initialization cheap even for very large ChatGPT shares.
             const candidates = [
                 document.scrollingElement,
                 document.documentElement,
                 document.body,
-                ...Array.from(document.querySelectorAll('main, [class*="overflow-y-auto"], [class*="overflow-y-scroll"], [class*="scroll"]'))
+                document.querySelector('main'),
+                document.querySelector('[class*="overflow-y-auto"]'),
+                document.querySelector('[class*="overflow-y-scroll"]')
             ].filter(Boolean);
-            return candidates
-                .map((el) => ({ el, delta: Math.max(0, (el.scrollHeight || 0) - (el.clientHeight || 0)) }))
-                .sort((a, b) => b.delta - a.delta)[0]?.el || document.scrollingElement || document.documentElement;
+
+            let best = document.scrollingElement || document.documentElement;
+            let bestDelta = -1;
+            for (const el of candidates) {
+                const delta = Math.max(0, (el.scrollHeight || 0) - (el.clientHeight || 0));
+                if (delta > bestDelta) {
+                    best = el;
+                    bestDelta = delta;
+                }
+            }
+            return best;
         }
 
         function uniqueOutermost(nodes) {
@@ -259,6 +281,79 @@ async function collectChunkedProviderHTML(page, provider, url, { expectedMessage
             return clone;
         }
 
+        function escapeHTML(value) {
+            return String(value || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function bestContentNode(nodes) {
+            let best = null;
+            let bestLength = -1;
+            for (const node of Array.from(nodes || [])) {
+                if (!node) continue;
+                const length = String(node.textContent || '').length;
+                if (length > bestLength) {
+                    best = node;
+                    bestLength = length;
+                }
+            }
+            return best;
+        }
+
+        function serializeChatGPTTurn(node, role) {
+            if (!node || !role) return '';
+
+            if (role === 'user') {
+                const userRoot = node.matches?.('[data-message-author-role="user"]')
+                    ? node
+                    : node.querySelector?.('[data-message-author-role="user"]');
+                const content = bestContentNode([
+                    ...(node.querySelectorAll?.('[data-message-author-role="user"] .whitespace-pre-wrap') || []),
+                    ...(node.querySelectorAll?.('.user-message-bubble-color .whitespace-pre-wrap') || []),
+                    ...(node.querySelectorAll?.('.user-message-bubble-color > div') || []),
+                    userRoot
+                ]) || node;
+                const clone = cleanClone(content);
+                return `<section data-turn="user"><div data-message-author-role="user">${clone.outerHTML}</div></section>`;
+            }
+
+            const assistantRoots = Array.from(node.querySelectorAll?.('[data-message-author-role="assistant"]') || []);
+            if (node.matches?.('[data-message-author-role="assistant"]')) assistantRoots.unshift(node);
+            const startRoots = assistantRoots.filter(el => el.getAttribute?.('data-turn-start-message') === 'true');
+            const roots = startRoots.length ? startRoots : assistantRoots;
+            const candidates = [];
+            for (const root of roots) {
+                candidates.push(...Array.from(root.querySelectorAll?.('.markdown.prose, .markdown-new-styling, .markdown') || []));
+                candidates.push(root);
+            }
+            if (!candidates.length) {
+                candidates.push(...Array.from(node.querySelectorAll?.('.markdown.prose, .markdown-new-styling, .markdown') || []));
+            }
+            const content = bestContentNode(candidates) || node;
+            const clone = cleanClone(content);
+
+            let thought = '';
+            for (const button of Array.from(node.querySelectorAll?.('button') || [])) {
+                const label = normalize(`${button.getAttribute?.('aria-label') || ''} ${button.textContent || ''}`);
+                if (/thought for|thinking|reasoning/i.test(label)) {
+                    thought = label.slice(0, 180);
+                    break;
+                }
+            }
+            const thoughtMarkup = thought ? `<button>${escapeHTML(thought)}</button>` : '';
+            return `<section data-turn="assistant">${thoughtMarkup}<div data-message-author-role="assistant" data-turn-start-message="true">${clone.outerHTML}</div></section>`;
+        }
+
+        function serializeLightTurn(node, role) {
+            const text = normalize(node?.textContent);
+            if (!text || !role) return '';
+            return `<section data-turn="${escapeHTML(role)}"><div data-message-author-role="${escapeHTML(role)}"><div class="whitespace-pre-wrap">${escapeHTML(text).replace(/\n/g, '<br>')}</div></div></section>`;
+        }
+
         const state = {
             provider: providerName,
             sourceUrl,
@@ -295,30 +390,45 @@ async function collectChunkedProviderHTML(page, provider, url, { expectedMessage
                 };
             },
 
-            clickExpanders() {
-                let selector = '';
+            clickExpanders(nodes = []) {
+                let buttons = [];
                 let pattern = null;
+
                 if (this.provider === 'chatgpt') {
-                    selector = '#thread button, main button';
                     pattern = /(show more|see more|load more|continue reading|expand response|expand text)/i;
+                    // Only inspect buttons inside the currently mounted turns. The
+                    // previous global '#thread button, main button' scan revisited
+                    // every button in a huge fully-mounted conversation on every
+                    // viewport and could dominate collection time.
+                    const seenButtons = new Set();
+                    for (const node of Array.from(nodes || []).slice(0, 96)) {
+                        for (const button of Array.from(node?.querySelectorAll?.('button') || [])) {
+                            if (seenButtons.has(button)) continue;
+                            seenButtons.add(button);
+                            buttons.push(button);
+                            if (buttons.length >= 160) break;
+                        }
+                        if (buttons.length >= 160) break;
+                    }
                 } else if (this.provider === 'gemini') {
-                    selector = '[data-test-id="luminous-expand-button"], button[aria-label="Expand"]';
                     pattern = /.*/;
+                    buttons = Array.from(document.querySelectorAll('[data-test-id="luminous-expand-button"], button[aria-label="Expand"]')).slice(0, 80);
                 }
-                if (!selector) return 0;
+
+                if (!pattern || !buttons.length) return 0;
                 let clicked = 0;
-                Array.from(document.querySelectorAll(selector)).forEach((button) => {
+                for (const button of buttons) {
                     const label = normalize(`${button.getAttribute('aria-label') || ''} ${button.textContent || ''}`);
-                    if (!pattern.test(label)) return;
-                    if (/log in|sign up|continue chat|continue conversation/i.test(label)) return;
+                    if (!pattern.test(label)) continue;
+                    if (/log in|sign up|continue chat|continue conversation/i.test(label)) continue;
                     try { button.click(); clicked += 1; } catch (_) {}
-                });
+                }
                 return clicked;
             },
 
             beginScan() {
-                this.clickExpanders();
                 const nodes = providerNodes();
+                this.clickExpanders(nodes);
                 this.maxMounted = Math.max(this.maxMounted, nodes.length);
                 this.minMounted = Math.min(this.minMounted, nodes.length);
 
@@ -335,46 +445,107 @@ async function collectChunkedProviderHTML(page, provider, url, { expectedMessage
                 const start = Math.max(0, Number(cursor) || 0);
                 const limit = Math.max(1, Math.min(64, Number(maxClones) || this.batchSize));
                 const end = Math.min(this.scanEntries.length, start + limit);
-                let changed = 0;
+                const localOccurrences = new Map();
+                const pending = [];
 
+                // Build the whole batch before mutating collector state. If Chrome
+                // terminates this execution because one turn is pathological, a retry
+                // starts from the same cursor without duplicate occurrence counters.
                 for (let index = start; index < end; index += 1) {
                     const entry = this.scanEntries[index];
                     const node = entry?.node;
                     if (!node?.isConnected) continue;
                     const text = normalize(node.textContent);
-                    if (!text) continue;
+                    if (!text || !entry.role) continue;
                     const base = stableBaseKey(node, entry.role, entry.orderHint);
-                    const occurrence = this.scanOccurrences.get(base) || 0;
-                    this.scanOccurrences.set(base, occurrence + 1);
+                    const occurrence = localOccurrences.has(base)
+                        ? localOccurrences.get(base)
+                        : (this.scanOccurrences.get(base) || 0);
+                    localOccurrences.set(base, occurrence + 1);
                     const key = `${base}:occ:${occurrence}`;
-                    const clone = cleanClone(node);
-                    const html = clone.outerHTML;
+                    const html = this.provider === 'chatgpt'
+                        ? serializeChatGPTTurn(node, entry.role)
+                        : cleanClone(node).outerHTML;
                     if (!html) continue;
+                    pending.push({ key, role: entry.role, html, textLength: text.length, orderHint: entry.orderHint });
+                }
 
-                    const existing = this.turns.get(key);
+                for (const [base, nextOccurrence] of localOccurrences) {
+                    this.scanOccurrences.set(base, nextOccurrence);
+                }
+
+                let changed = 0;
+                for (const item of pending) {
+                    const existing = this.turns.get(item.key);
                     if (!existing) {
                         const firstSeen = this.sequence++;
-                        this.turns.set(key, {
-                            role: entry.role,
-                            html,
-                            textLength: text.length,
-                            htmlLength: html.length,
-                            order: entry.orderHint ?? firstSeen,
+                        this.turns.set(item.key, {
+                            role: item.role,
+                            html: item.html,
+                            textLength: item.textLength,
+                            htmlLength: item.html.length,
+                            order: item.orderHint ?? firstSeen,
                             firstSeen
                         });
                         changed += 1;
                         continue;
                     }
 
-                    if (text.length > existing.textLength || html.length > existing.htmlLength * 1.06) {
-                        existing.html = html;
-                        existing.textLength = Math.max(existing.textLength, text.length);
-                        existing.htmlLength = Math.max(existing.htmlLength, html.length);
+                    if (item.textLength > existing.textLength || item.html.length > existing.htmlLength * 1.06) {
+                        existing.html = item.html;
+                        existing.textLength = Math.max(existing.textLength, item.textLength);
+                        existing.htmlLength = Math.max(existing.htmlLength, item.html.length);
                         changed += 1;
                     }
                 }
 
                 return { next: end, total: this.scanEntries.length, changed, ...this.metrics() };
+            },
+
+            captureBatchLight(cursor = 0, maxItems = 2) {
+                const start = Math.max(0, Number(cursor) || 0);
+                const limit = Math.max(1, Math.min(8, Number(maxItems) || 2));
+                const end = Math.min(this.scanEntries.length, start + limit);
+                const localOccurrences = new Map();
+                const pending = [];
+
+                for (let index = start; index < end; index += 1) {
+                    const entry = this.scanEntries[index];
+                    const node = entry?.node;
+                    if (!node?.isConnected || !entry.role) continue;
+                    const text = normalize(node.textContent);
+                    if (!text) continue;
+                    const base = stableBaseKey(node, entry.role, entry.orderHint);
+                    const occurrence = localOccurrences.has(base)
+                        ? localOccurrences.get(base)
+                        : (this.scanOccurrences.get(base) || 0);
+                    localOccurrences.set(base, occurrence + 1);
+                    const key = `${base}:occ:${occurrence}`;
+                    const html = serializeLightTurn(node, entry.role);
+                    if (!html) continue;
+                    pending.push({ key, role: entry.role, html, textLength: text.length, orderHint: entry.orderHint });
+                }
+
+                for (const [base, nextOccurrence] of localOccurrences) {
+                    this.scanOccurrences.set(base, nextOccurrence);
+                }
+
+                let changed = 0;
+                for (const item of pending) {
+                    if (this.turns.has(item.key)) continue;
+                    const firstSeen = this.sequence++;
+                    this.turns.set(item.key, {
+                        role: item.role,
+                        html: item.html,
+                        textLength: item.textLength,
+                        htmlLength: item.html.length,
+                        order: item.orderHint ?? firstSeen,
+                        firstSeen
+                    });
+                    changed += 1;
+                }
+
+                return { next: end, total: this.scanEntries.length, changed, degraded: true, ...this.metrics() };
             },
 
             async scrollTo(y, waitMs = 120) {
@@ -442,20 +613,70 @@ async function collectChunkedProviderHTML(page, provider, url, { expectedMessage
         };
 
         window[stateKey] = state;
-    }, { stateKey: STATE_KEY, providerName: provider, sourceUrl: url, captureBatchSize: PROVIDER_CAPTURE_BATCH_SIZE });
+    }, {
+        stateKey: STATE_KEY,
+        providerName: provider,
+        sourceUrl: url,
+        captureBatchSize: provider === 'chatgpt' ? CHATGPT_CAPTURE_BATCH_SIZE : PROVIDER_CAPTURE_BATCH_SIZE
+    });
 
-    const callCollector = (method, ...args) => page.evaluate(({ stateKey, method, args }) => {
-        const collector = window[stateKey];
-        if (!collector || typeof collector[method] !== 'function') throw new Error('Provider collector state was lost.');
-        return collector[method](...args);
-    }, { stateKey: STATE_KEY, method, args });
+    const collectorSession = await page.createCDPSession();
+    await collectorSession.send('Runtime.enable').catch(() => {});
 
-    const drainCurrentPosition = async (maxRounds = 96) => {
+    const callCollector = async (method, ...args) => {
+        const encodedKey = JSON.stringify(STATE_KEY);
+        const encodedMethod = JSON.stringify(method);
+        const encodedArgs = JSON.stringify(args).replace(/</g, '\\u003c');
+        const expression = `(() => { const c = globalThis[${encodedKey}]; if (!c || typeof c[${encodedMethod}] !== 'function') throw new Error('Provider collector state was lost.'); return c[${encodedMethod}](...${encodedArgs}); })()`;
+
+        try {
+            const response = await collectorSession.send('Runtime.evaluate', {
+                expression,
+                awaitPromise: true,
+                returnByValue: true,
+                timeout: PROVIDER_COLLECTOR_CALL_TIMEOUT_MS,
+                userGesture: false
+            });
+            if (response.exceptionDetails) {
+                const detail = response.exceptionDetails.exception?.description ||
+                    response.exceptionDetails.text ||
+                    'Provider collector execution failed.';
+                throw new Error(detail);
+            }
+            return response.result?.value;
+        } catch (error) {
+            const message = String(error?.message || error || '');
+            if (/timed out|terminated.*timeout|execution.*timeout/i.test(message)) {
+                const wrapped = new Error(`${provider}.${method} exceeded ${PROVIDER_COLLECTOR_CALL_TIMEOUT_MS}ms collector deadline.`);
+                wrapped.name = 'ProviderCollectorTimeoutError';
+                wrapped.code = 'PROVIDER_COLLECTOR_CALL_TIMEOUT';
+                wrapped.operation = `${provider}.${method}`;
+                wrapped.cause = error;
+                throw wrapped;
+            }
+            if (error && !error.operation) error.operation = `${provider}.${method}`;
+            throw error;
+        }
+    };
+
+    const drainCurrentPosition = async (maxRounds = 512) => {
         const scan = await callCollector('beginScan');
         let cursor = 0;
         let metrics = scan;
+        const batchSize = provider === 'chatgpt' ? CHATGPT_CAPTURE_BATCH_SIZE : PROVIDER_CAPTURE_BATCH_SIZE;
+
         for (let round = 0; cursor < (scan?.total || 0) && round < maxRounds; round += 1) {
-            const batch = await callCollector('captureBatch', cursor, PROVIDER_CAPTURE_BATCH_SIZE);
+            let batch;
+            try {
+                batch = await callCollector('captureBatch', cursor, batchSize);
+            } catch (error) {
+                if (provider !== 'chatgpt' || !isProtocolTimeoutError(error)) throw error;
+
+                // One exceptionally complex ChatGPT turn should not kill the entire
+                // export. Retry the same cursor with a text-preserving minimal
+                // serializer and only two turns per V8 call.
+                batch = await callCollector('captureBatchLight', cursor, Math.min(2, batchSize));
+            }
             if (!batch || batch.next <= cursor) break;
             cursor = batch.next;
             metrics = batch;
@@ -534,8 +755,13 @@ async function collectChunkedProviderHTML(page, provider, url, { expectedMessage
 
         const chunks = [];
         let offset = 0;
+        const finalItemsPerCall = provider === 'chatgpt' ? 4 : 10;
+        const finalCharsPerCall = provider === 'chatgpt'
+            ? PROVIDER_FINAL_CHUNK_CHARS
+            : Math.min(900000, PROVIDER_FINAL_CHUNK_CHARS * 2);
+
         while (offset < meta.count) {
-            const chunk = await callCollector('readFinalChunk', offset, 10, 1400000);
+            const chunk = await callCollector('readFinalChunk', offset, finalItemsPerCall, finalCharsPerCall);
             if (!chunk?.items?.length || chunk.next <= offset) break;
             chunks.push(...chunk.items);
             offset = chunk.next;
@@ -572,7 +798,15 @@ async function collectChunkedProviderHTML(page, provider, url, { expectedMessage
         }
         return '';
     } finally {
-        await page.evaluate((stateKey) => { try { delete window[stateKey]; } catch (_) {} }, STATE_KEY).catch(() => {});
+        // Do not use page.evaluate() for cleanup after a collector timeout; that
+        // would create another Runtime.callFunctionOn while Chrome may still be
+        // recovering. Reuse the bounded CDP session instead.
+        await collectorSession.send('Runtime.evaluate', {
+            expression: `try { delete globalThis[${JSON.stringify(STATE_KEY)}]; } catch (_) {}`,
+            returnByValue: true,
+            timeout: 2000
+        }).catch(() => {});
+        await collectorSession.detach().catch(() => {});
     }
 }
 
@@ -939,8 +1173,9 @@ function delay(ms) {
 }
 
 function isProtocolTimeoutError(error) {
+    if (error?.code === 'PROVIDER_COLLECTOR_CALL_TIMEOUT' || error?.name === 'ProviderCollectorTimeoutError') return true;
     const message = String(error?.message || error || '');
-    return /Runtime\.callFunctionOn timed out|protocolTimeout|protocol timeout|ProtocolError[^\n]*timed out/i.test(message);
+    return /Runtime\.(?:callFunctionOn|evaluate) timed out|protocolTimeout|protocol timeout|ProtocolError[^\n]*timed out|execution.*(?:terminated|timed out).*timeout|exceeded \d+ms collector deadline/i.test(message);
 }
 
 function safeUrlForLog(value) {
@@ -1215,71 +1450,87 @@ function hasUsableCollectedEvidence(evidence) {
     return !!evidence && evidence.users > 0 && evidence.assistants > 0 && evidence.textLength >= 20;
 }
 
+async function collectSmallPageSnapshot(page, { maxChars = 2_500_000, timeoutMs = 8000 } = {}) {
+    // Legacy full-page fallback, but only for genuinely small pages. Using
+    // page.content() after a collector timeout can issue another unbounded
+    // Runtime.callFunctionOn and multiply a 5-minute failure into a 10-15 minute
+    // request. Runtime.evaluate's V8 timeout gives this fallback a hard ceiling.
+    const session = await page.createCDPSession();
+    try {
+        await session.send('Runtime.enable').catch(() => {});
+        const expression = `(() => {
+            const body = document.body;
+            const textLength = String(body?.textContent || '').length;
+            const nodeCount = document.getElementsByTagName('*').length;
+            if (textLength > 1200000 || nodeCount > 22000) return '';
+            const html = document.documentElement?.outerHTML || '';
+            return html.length <= 2500000 ? html : '';
+        })()`;
+        const response = await session.send('Runtime.evaluate', {
+            expression,
+            returnByValue: true,
+            timeout: Math.max(1000, Math.min(15000, Number(timeoutMs) || 8000))
+        });
+        if (response.exceptionDetails) return '';
+        return typeof response.result?.value === 'string' ? response.result.value : '';
+    } catch (_) {
+        return '';
+    } finally {
+        await session.detach().catch(() => {});
+    }
+}
+
 async function collectPageHTML(page, provider, url, { expectedMessages = 0 } = {}) {
     try {
         await page.waitForNetworkIdle({ idleTime: 650, timeout: 7000 }).catch(() => {});
 
         if (provider === 'chatgpt') {
-            let html = await collectChatGPTHTML(page, url, { expectedMessages });
-            if (!/data-message-author-role|conversation-turn-|data-turn=/i.test(html)) html = await page.content();
-            return html;
+            const html = await collectChatGPTHTML(page, url, { expectedMessages });
+            if (/data-message-author-role|conversation-turn-|data-turn=/i.test(html)) return html;
+            return (await collectSmallPageSnapshot(page)) || html;
         }
 
         if (provider === 'claude') {
-            let html = await collectClaudeHTML(page, url, { expectedMessages });
-            if (!/data-c2p-claude-turn|font-claude-response|standard-markdown|progressive-markdown/i.test(html)) html = await page.content();
-            return html;
+            const html = await collectClaudeHTML(page, url, { expectedMessages });
+            if (/data-c2p-claude-turn|font-claude-response|standard-markdown|progressive-markdown/i.test(html)) return html;
+            return (await collectSmallPageSnapshot(page)) || html;
         }
 
         if (provider === 'gemini') {
-            let html = await collectGeminiHTML(page, url, { expectedMessages });
-            if (!/share-turn-viewer|markdown-main-panel|query-text/i.test(html)) html = await page.content();
-            return html;
+            const html = await collectGeminiHTML(page, url, { expectedMessages });
+            if (/share-turn-viewer|markdown-main-panel|query-text/i.test(html)) return html;
+            return (await collectSmallPageSnapshot(page)) || html;
         }
 
         if (provider === 'qwen') {
-            let html = await collectQwenHTML(page, url, { expectedMessages });
-            if (!/share-layout-messages|qwen-chat-message/i.test(html)) html = await page.content();
-            return html;
+            const html = await collectQwenHTML(page, url, { expectedMessages });
+            if (/share-layout-messages|qwen-chat-message/i.test(html)) return html;
+            return (await collectSmallPageSnapshot(page)) || html;
         }
 
         if (provider === 'grok') {
-            let html = await collectGrokHTML(page, url, { expectedMessages });
-            if (!/data-testid=["'](?:user-message|assistant-message)["']/i.test(html)) html = await page.content();
-            return html;
+            const html = await collectGrokHTML(page, url, { expectedMessages });
+            if (/data-testid=["'](?:user-message|assistant-message)["']/i.test(html)) return html;
+            return (await collectSmallPageSnapshot(page)) || html;
         }
 
-        await page.evaluate(async () => {
-            await new Promise((resolve) => {
-                let totalHeight = 0;
-                const distance = Math.max(500, Math.floor((window.innerHeight || 900) * 0.7));
-                const maxHeight = Math.max(document.body?.scrollHeight || 0, document.documentElement?.scrollHeight || 0);
-                const timer = setInterval(() => {
-                    window.scrollBy(0, distance);
-                    totalHeight += distance;
-                    if (totalHeight >= maxHeight + distance) {
-                        clearInterval(timer);
-                        window.scrollTo(0, 0);
-                        resolve();
-                    }
-                }, 120);
-                setTimeout(() => {
-                    clearInterval(timer);
-                    window.scrollTo(0, 0);
-                    resolve();
-                }, 5000);
-            });
-        });
-        await delay(provider === 'gemini' ? 1200 : 700);
-        return await page.content();
+        return await collectSmallPageSnapshot(page);
     } catch (error) {
-        if (expectedMessages >= 2 && isProtocolTimeoutError(error)) {
-            // The route will append already captured structured messages below. For a
-            // giant page, asking Chrome for page.content() immediately after a CDP
-            // timeout can trigger the same failure again, regardless of provider.
-            return `<!doctype html><html><head></head><body><main id="c2p-${provider}-structured-fallback" data-provider="${provider}"></main></body></html>`;
+        if (isProtocolTimeoutError(error)) {
+            // Critical: never call page.content() after a protocol/collector timeout.
+            // That repeats the same expensive Runtime call and was the main reason a
+            // ChatGPT failure could stretch to ~15 minutes and end as a proxy
+            // "Network error". If structured messages are already available, the
+            // route appends them to this shell. Otherwise fail promptly and cleanly.
+            if (expectedMessages >= 2) {
+                return `<!doctype html><html><head></head><body><main id="c2p-${provider}-structured-fallback" data-provider="${provider}"></main></body></html>`;
+            }
+            throw error;
         }
-        return await page.content();
+
+        const snapshot = await collectSmallPageSnapshot(page);
+        if (snapshot) return snapshot;
+        throw error;
     }
 }
 
@@ -1573,7 +1824,8 @@ app.post('/api/extract', extractionSecurityHeaders, rejectCrossOriginBrowserRequ
         const protocolTimedOut = !(error instanceof ExtractionError) && isProtocolTimeoutError(error);
         const status = error instanceof ExtractionError ? error.status : (protocolTimedOut ? 504 : 500);
         const code = error instanceof ExtractionError ? error.code : (protocolTimedOut ? 'BROWSER_PROTOCOL_TIMEOUT' : 'EXTRACTION_FAILED');
-        console.error(`[${requestId}] ${code}${error instanceof ExtractionError ? `: ${error.message}` : ` (${error?.name || 'Error'})`} durationMs=${Date.now() - extractionStartedAt}`);
+        const operation = error?.operation ? ` op=${String(error.operation).replace(/[^a-z0-9_.:-]/gi, '').slice(0, 80)}` : '';
+        console.error(`[${requestId}] ${code}${error instanceof ExtractionError ? `: ${error.message}` : ` (${error?.name || 'Error'})`}${operation} durationMs=${Date.now() - extractionStartedAt}`);
         sendProgress('extraction_error', { code });
         return await sendExtractionResponse(status, {
             success: false,
