@@ -564,6 +564,22 @@ clean(payload) {
       const providerNames = { claude: 'Claude', chatgpt: 'ChatGPT', gemini: 'Gemini', grok: 'Grok', qwen: 'Qwen' };
 
       const stageCopy = {
+        queued: {
+          text: ({ position, lane }) => lane === 'heavy'
+            ? `Big chat. You're #${Math.max(1, Number(position) || 1)} in line, partner.`
+            : `You're #${Math.max(1, Number(position) || 1)} in line, partner.`,
+          quips: [
+            [10000, () => `Still got your spot. Ain't lettin' anybody swipe it.`],
+            [26000, ({ lane }) => lane === 'heavy'
+              ? `Long-haul line's movin'. Your chat's safe.`
+              : `Line's movin', partner. You're still in it.`],
+            [52000, () => `Still with ya. No need to paste that link again.`]
+          ]
+        },
+        long_chat_detected: {
+          text: () => `That is one big ol' conversation. Givin' it the long-haul lane.`,
+          quips: []
+        },
         // Keep the first thing the user sees stable. Fast technical stages should not
         // turn the status line into a slot machine before anyone can read it.
         browser_starting: {
@@ -683,7 +699,18 @@ clean(payload) {
       }
 
       function enterStage(stage, context = {}) {
-        if (!stageCopy[stage] || stage === currentStage) return;
+        if (!stageCopy[stage]) return;
+
+        // Queue position is live data, not a new visual component. Reuse the exact
+        // same status line and update it in place when somebody ahead finishes.
+        if (stage === currentStage) {
+          if (stage === 'queued' && !context.heartbeat) {
+            clearStageTimers();
+            const config = stageCopy[stage];
+            setStatus(config.text(context));
+          }
+          return;
+        }
         currentStage = stage;
         currentStageStartedAt = Date.now();
         clearStageTimers();

@@ -16,8 +16,14 @@ const {
     appendNetworkFallback
 } = require('./lib/extraction-utils');
 
-// Ativa o modo invisível do Puppeteer
-puppeteer.use(StealthPlugin());
+// Ativa o modo invisível do Puppeteer. O evasion `user-agent-override` usa um
+// hook assíncrono de target do puppeteer-extra. Se o Chrome/CDP estiver sob
+// pressão e `Network.setUserAgentOverride` expirar, essa rejeição pode nascer
+// fora do try/catch da rota e derrubar o processo Node inteiro. Mantemos os
+// demais evasions e fazemos o UA override explicitamente (e aguardado) abaixo.
+const stealthPlugin = StealthPlugin();
+stealthPlugin.enabledEvasions.delete('user-agent-override');
+puppeteer.use(stealthPlugin);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -32,7 +38,7 @@ function boundedEnvInt(name, fallback, min, max) {
 // single CDP serialization expensive, so keep a larger safety margin. All long-
 // conversation collectors below are deliberately split into short CDP calls so
 // this is a fallback, not the primary long-conversation strategy.
-const PUPPETEER_PROTOCOL_TIMEOUT_MS = boundedEnvInt('PUPPETEER_PROTOCOL_TIMEOUT_MS', 300000, 60000, 300000);
+const PUPPETEER_PROTOCOL_TIMEOUT_MS = boundedEnvInt('PUPPETEER_PROTOCOL_TIMEOUT_MS', 60000, 30000, 120000);
 const CLAUDE_COLLECTION_BUDGET_MS = boundedEnvInt('CLAUDE_COLLECTION_BUDGET_MS', 150000, 30000, 300000);
 const CLAUDE_CAPTURE_BATCH_SIZE = boundedEnvInt('CLAUDE_CAPTURE_BATCH_SIZE', 24, 4, 64);
 const PROVIDER_COLLECTION_BUDGET_MS = boundedEnvInt('PROVIDER_COLLECTION_BUDGET_MS', 150000, 30000, 300000);
@@ -45,6 +51,17 @@ const CHATGPT_CAPTURE_BATCH_SIZE = boundedEnvInt('CHATGPT_CAPTURE_BATCH_SIZE', 6
 const PROVIDER_COLLECTOR_CALL_TIMEOUT_MS = boundedEnvInt('PROVIDER_COLLECTOR_CALL_TIMEOUT_MS', 12000, 3000, 45000);
 const PROVIDER_FINAL_CHUNK_CHARS = boundedEnvInt('PROVIDER_FINAL_CHUNK_CHARS', 360000, 100000, 900000);
 const STREAM_HTML_CHUNK_SIZE = boundedEnvInt('STREAM_HTML_CHUNK_SIZE', 262144, 65536, 1048576);
+const FAST_LANE_BUDGET_MS = boundedEnvInt('FAST_LANE_BUDGET_MS', 30000, 12000, 60000);
+const HEAVY_PROGRESS_SLICE_MS = boundedEnvInt('HEAVY_PROGRESS_SLICE_MS', 8000, 2000, 20000);
+const HEAVY_MESSAGE_THRESHOLD = boundedEnvInt('HEAVY_MESSAGE_THRESHOLD', 260, 80, 1200);
+const HEAVY_SCROLL_HEIGHT_THRESHOLD = boundedEnvInt('HEAVY_SCROLL_HEIGHT_THRESHOLD', 120000, 30000, 500000);
+const HEAVY_SAMPLED_TEXT_THRESHOLD = boundedEnvInt('HEAVY_SAMPLED_TEXT_THRESHOLD', 90000, 30000, 190000);
+const QUEUE_MEMORY_PRESSURE_PERCENT = boundedEnvInt('QUEUE_MEMORY_PRESSURE_PERCENT', 82, 55, 95);
+const MAX_QUEUE_DEPTH = boundedEnvInt('MAX_QUEUE_DEPTH', 25, 5, 200);
+const BROWSER_LAUNCH_TIMEOUT_MS = boundedEnvInt('BROWSER_LAUNCH_TIMEOUT_MS', 20000, 5000, 60000);
+const BROWSER_CLOSE_TIMEOUT_MS = boundedEnvInt('BROWSER_CLOSE_TIMEOUT_MS', 8000, 2000, 20000);
+const EXTRACTION_HARD_TIMEOUT_MS = boundedEnvInt('EXTRACTION_HARD_TIMEOUT_MS', 210000, 60000, 300000);
+
 
 app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS || 1));
 
@@ -106,7 +123,7 @@ const limiter = rateLimit({
     message: { error: "Muitas requisições. Tente novamente mais tarde." }
 });
 
-async function collectChunkedProviderHTML(page, provider, url, { expectedMessages = 0 } = {}) {
+async function collectChunkedProviderHTML(page, provider, url, { expectedMessages = 0, checkpoint = null } = {}) {
     // ChatGPT, Gemini, Grok, and Qwen can all expose very large public chats. Keep
     // expensive DOM work inside many short CDP calls instead of one long
     // Runtime.callFunctionOn. State lives only inside this page/request and is
@@ -624,6 +641,7 @@ async function collectChunkedProviderHTML(page, provider, url, { expectedMessage
     await collectorSession.send('Runtime.enable').catch(() => {});
 
     const callCollector = async (method, ...args) => {
+        if (checkpoint) await checkpoint(`${provider}.${method}`);
         const encodedKey = JSON.stringify(STATE_KEY);
         const encodedMethod = JSON.stringify(method);
         const encodedArgs = JSON.stringify(args).replace(/</g, '\\u003c');
@@ -814,7 +832,7 @@ async function collectChatGPTHTML(page, url, options = {}) {
     return collectChunkedProviderHTML(page, 'chatgpt', url, options);
 }
 
-async function collectClaudeHTML(page, url, { expectedMessages = 0 } = {}) {
+async function collectClaudeHTML(page, url, { expectedMessages = 0, checkpoint = null } = {}) {
     // Claude chats can be enormous. The old collector performed the entire scroll,
     // repeated DOM scans, cloning, and final serialization inside one page.evaluate().
     // On very large conversations that kept one Runtime.callFunctionOn open long
@@ -1049,11 +1067,49 @@ async function collectClaudeHTML(page, url, { expectedMessages = 0 } = {}) {
         window[stateKey] = state;
     }, { stateKey: STATE_KEY, sourceUrl: url, captureBatchSize: CLAUDE_CAPTURE_BATCH_SIZE });
 
-    const callCollector = (method, ...args) => page.evaluate(({ stateKey, method, args }) => {
-        const collector = window[stateKey];
-        if (!collector || typeof collector[method] !== 'function') throw new Error('Claude collector state was lost.');
-        return collector[method](...args);
-    }, { stateKey: STATE_KEY, method, args });
+    // Use the same bounded CDP execution model as the other providers. The old
+    // Claude path used page.evaluate() here, so each batch could inherit the full
+    // connection-wide protocol timeout (previously 300s). One pathological DOM
+    // batch could therefore pin a whole Chrome process for minutes.
+    const collectorSession = await page.createCDPSession();
+    await collectorSession.send('Runtime.enable').catch(() => {});
+
+    const callCollector = async (method, ...args) => {
+        if (checkpoint) await checkpoint(`claude.${method}`);
+        const encodedKey = JSON.stringify(STATE_KEY);
+        const encodedMethod = JSON.stringify(method);
+        const encodedArgs = JSON.stringify(args).replace(/</g, '\\u003c');
+        const expression = `(() => { const c = globalThis[${encodedKey}]; if (!c || typeof c[${encodedMethod}] !== 'function') throw new Error('Claude collector state was lost.'); return c[${encodedMethod}](...${encodedArgs}); })()`;
+
+        try {
+            const response = await collectorSession.send('Runtime.evaluate', {
+                expression,
+                awaitPromise: true,
+                returnByValue: true,
+                timeout: PROVIDER_COLLECTOR_CALL_TIMEOUT_MS,
+                userGesture: false
+            });
+            if (response.exceptionDetails) {
+                const detail = response.exceptionDetails.exception?.description ||
+                    response.exceptionDetails.text ||
+                    'Claude collector execution failed.';
+                throw new Error(detail);
+            }
+            return response.result?.value;
+        } catch (error) {
+            const message = String(error?.message || error || '');
+            if (/timed out|terminated.*timeout|execution.*timeout/i.test(message)) {
+                const wrapped = new Error(`claude.${method} exceeded ${PROVIDER_COLLECTOR_CALL_TIMEOUT_MS}ms collector deadline.`);
+                wrapped.name = 'ProviderCollectorTimeoutError';
+                wrapped.code = 'PROVIDER_COLLECTOR_CALL_TIMEOUT';
+                wrapped.operation = `claude.${method}`;
+                wrapped.cause = error;
+                throw wrapped;
+            }
+            if (error && !error.operation) error.operation = `claude.${method}`;
+            throw error;
+        }
+    };
 
     const drainCurrentPosition = async (maxRounds = 96) => {
         let metrics = null;
@@ -1146,9 +1202,14 @@ async function collectClaudeHTML(page, url, { expectedMessages = 0 } = {}) {
             `<meta property="og:title" content="${escapeAttr(meta.title)}"></head>` +
             `<body><main id="c2p-collected-claude" data-provider="claude" data-collected-turns="${sections.length}">${sections.join('\n')}</main></body></html>`;
     } finally {
-        // Release potentially large serialized turn snapshots as soon as the result has
-        // crossed the CDP boundary back to Node.
-        await page.evaluate((stateKey) => { try { delete window[stateKey]; } catch (_) {} }, STATE_KEY).catch(() => {});
+        // Never start a fresh page.evaluate() after a collector timeout. Reuse the
+        // bounded CDP session, then detach it regardless of Chrome health.
+        await collectorSession.send('Runtime.evaluate', {
+            expression: `try { delete globalThis[${JSON.stringify(STATE_KEY)}]; } catch (_) {}`,
+            returnByValue: true,
+            timeout: 2000
+        }).catch(() => {});
+        await collectorSession.detach().catch(() => {});
     }
 }
 
@@ -1170,6 +1231,446 @@ async function collectGrokHTML(page, url, options = {}) {
 // ==========================================
 function delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function closeBrowserSafely(browser, remoteBrowser = false) {
+    if (!browser) return;
+    if (remoteBrowser) {
+        try { browser.disconnect(); } catch (_) {}
+        return;
+    }
+
+    const processHandle = typeof browser.process === 'function' ? browser.process() : null;
+    let timer;
+    try {
+        await Promise.race([
+            Promise.resolve(browser.close()).catch(() => {}),
+            new Promise((resolve) => {
+                timer = setTimeout(resolve, BROWSER_CLOSE_TIMEOUT_MS);
+                timer.unref?.();
+            })
+        ]);
+    } finally {
+        if (timer) clearTimeout(timer);
+    }
+
+    // If CDP was wedged, browser.close() can return late or fail to reap Chrome.
+    // A leftover Chrome is worse than a failed extraction in a small container.
+    if (processHandle && !processHandle.killed && processHandle.exitCode == null) {
+        try { processHandle.kill('SIGKILL'); } catch (_) {}
+    }
+}
+
+
+class QueuePromotionError extends Error {
+    constructor(reason = 'heavy') {
+        super(`Conversation promoted to the heavy queue (${reason}).`);
+        this.name = 'QueuePromotionError';
+        this.code = 'QUEUE_PROMOTION';
+        this.reason = reason;
+    }
+}
+
+function createDeferred() {
+    let resolve;
+    let reject;
+    let settled = false;
+    const promise = new Promise((res, rej) => {
+        resolve = (value) => {
+            if (settled) return;
+            settled = true;
+            res(value);
+        };
+        reject = (error) => {
+            if (settled) return;
+            settled = true;
+            rej(error);
+        };
+    });
+    return { promise, resolve, reject, get settled() { return settled; } };
+}
+
+function readCgroupMemoryRatio() {
+    const candidates = [
+        ['/sys/fs/cgroup/memory.current', '/sys/fs/cgroup/memory.max'],
+        ['/sys/fs/cgroup/memory/memory.usage_in_bytes', '/sys/fs/cgroup/memory/memory.limit_in_bytes']
+    ];
+    for (const [currentPath, maxPath] of candidates) {
+        try {
+            const currentRaw = fs.readFileSync(currentPath, 'utf8').trim();
+            const maxRaw = fs.readFileSync(maxPath, 'utf8').trim();
+            if (!currentRaw || !maxRaw || maxRaw === 'max') continue;
+            const current = Number(currentRaw);
+            const max = Number(maxRaw);
+            if (Number.isFinite(current) && Number.isFinite(max) && max > 0) {
+                return Math.max(0, Math.min(1, current / max));
+            }
+        } catch (_) {}
+    }
+    return null;
+}
+
+class ExtractionScheduler {
+    constructor({ memoryRatioReader = readCgroupMemoryRatio } = {}) {
+        this.memoryRatioReader = memoryRatioReader;
+        this.quickQueue = [];
+        this.heavyQueue = [];
+        this.activeQuick = null;
+        this.activeHeavy = null;
+        this.changeWaiters = new Set();
+        this.heavyAtCheckpoint = false;
+        this.heavyPriorityUntil = 0;
+        this.pumpTimer = null;
+    }
+
+    createJob({ requestId, provider, sendProgress }) {
+        return {
+            requestId,
+            provider,
+            sendProgress,
+            lane: 'new',
+            state: 'new',
+            cancelled: false,
+            quickDeferred: null,
+            heavyDeferred: null,
+            quickStartedAt: 0,
+            heavyReason: '',
+            currentOperation: 'queue',
+            abortAttempt: null
+        };
+    }
+
+    _signalChange() {
+        const waiters = Array.from(this.changeWaiters);
+        this.changeWaiters.clear();
+        waiters.forEach(resolve => resolve());
+    }
+
+    _waitForChange() {
+        return new Promise(resolve => this.changeWaiters.add(resolve));
+    }
+
+    _removeFromQueue(queue, job) {
+        const index = queue.indexOf(job);
+        if (index !== -1) queue.splice(index, 1);
+    }
+
+    _canRunQuickAlongsideHeavy() {
+        if (!this.activeHeavy) return true;
+        // Never admit a fast-lane page in the middle of a heavy CDP operation.
+        // Heavy work explicitly opens a yield point at bounded checkpoints.
+        if (!this.heavyAtCheckpoint) return false;
+        if (Date.now() < this.heavyPriorityUntil) return false;
+        const ratio = this.memoryRatioReader?.();
+        if (ratio == null) return true;
+        return ratio * 100 < QUEUE_MEMORY_PRESSURE_PERCENT;
+    }
+
+    _schedulePump(delayMs = 1000) {
+        if (this.pumpTimer) return;
+        this.pumpTimer = setTimeout(() => {
+            this.pumpTimer = null;
+            this._pump();
+        }, Math.max(50, delayMs));
+        this.pumpTimer.unref?.();
+    }
+
+    _notifyPositions() {
+        this.quickQueue.forEach((job, index) => {
+            if (job.cancelled) return;
+            const position = (this.activeQuick ? 1 : 0) + index + 1;
+            job.sendProgress?.('queued', { position, lane: 'quick' });
+        });
+        this.heavyQueue.forEach((job, index) => {
+            if (job.cancelled) return;
+            const position = (this.activeHeavy ? 1 : 0) + index + 1;
+            job.sendProgress?.('queued', { position, lane: 'heavy' });
+        });
+    }
+
+    _grantQuick(job) {
+        this.activeQuick = job;
+        job.state = 'active';
+        job.lane = 'quick';
+        job.quickStartedAt = Date.now();
+        job.quickDeferred?.resolve();
+        this._signalChange();
+    }
+
+    _grantHeavy(job) {
+        this.activeHeavy = job;
+        this.heavyAtCheckpoint = false;
+        job.state = 'active';
+        job.lane = 'heavy';
+        job.heavyDeferred?.resolve();
+        this._signalChange();
+    }
+
+    _pump() {
+        this.quickQueue = this.quickQueue.filter(job => !job.cancelled);
+        this.heavyQueue = this.heavyQueue.filter(job => !job.cancelled);
+
+        // A queued heavy job gets the long-haul slot as soon as the current fast
+        // pass finishes. Once it owns that slot, a new quick pass may run beside it
+        // in the same Chromium process when container memory has enough headroom.
+        if (!this.activeHeavy && !this.activeQuick && this.heavyQueue.length) {
+            this._grantHeavy(this.heavyQueue.shift());
+        }
+
+        if (!this.activeQuick && this.quickQueue.length) {
+            if (this._canRunQuickAlongsideHeavy()) {
+                this._grantQuick(this.quickQueue.shift());
+            } else if (this.activeHeavy) {
+                const sliceWait = Math.max(0, this.heavyPriorityUntil - Date.now());
+                // Re-check both the guaranteed heavy slice and cgroup memory pressure.
+                this._schedulePump(sliceWait > 0 ? Math.min(sliceWait + 25, 1500) : 1500);
+            }
+        }
+
+        this._notifyPositions();
+    }
+
+    async enqueueQuick(job) {
+        if (job.cancelled) throw new ExtractionError('The extraction request was cancelled.', { status: 499, code: 'CLIENT_DISCONNECTED' });
+        if (this.quickQueue.length + this.heavyQueue.length >= MAX_QUEUE_DEPTH) {
+            throw new ExtractionError('The conversion line is full right now. Please try again in a bit.', {
+                status: 503,
+                code: 'QUEUE_FULL'
+            });
+        }
+        job.lane = 'quick_queue';
+        job.state = 'queued';
+        job.quickDeferred = createDeferred();
+        this.quickQueue.push(job);
+        this._notifyPositions();
+        this._pump();
+        return job.quickDeferred.promise;
+    }
+
+    promoteOrQueue(job, reason = 'heavy') {
+        if (job.cancelled) throw new ExtractionError('The extraction request was cancelled.', { status: 499, code: 'CLIENT_DISCONNECTED' });
+        if (job.lane === 'heavy' || job.lane === 'heavy_queue') return job.lane === 'heavy' ? 'promoted' : 'queued';
+        if (this.activeQuick !== job) return 'unchanged';
+
+        job.heavyReason = reason;
+        job.sendProgress?.('long_chat_detected', { reason });
+        this.activeQuick = null;
+
+        if (!this.activeHeavy) {
+            this.activeHeavy = job;
+            job.lane = 'heavy';
+            job.state = 'active';
+            this._signalChange();
+            this._pump();
+            return 'promoted';
+        }
+
+        job.lane = 'heavy_queue';
+        job.state = 'queued';
+        job.heavyDeferred = createDeferred();
+        this.heavyQueue.push(job);
+        this._signalChange();
+        this._notifyPositions();
+        this._pump();
+        return 'queued';
+    }
+
+    async waitForHeavy(job) {
+        if (job.lane === 'heavy') return;
+        if (!job.heavyDeferred) throw new Error('Heavy queue waiter was not initialized.');
+        return job.heavyDeferred.promise;
+    }
+
+    async checkpoint(job, operation = '') {
+        if (operation) job.currentOperation = operation;
+        if (job.cancelled) {
+            throw new ExtractionError('The extraction request was cancelled.', { status: 499, code: 'CLIENT_DISCONNECTED' });
+        }
+
+        if (job.lane === 'quick' && job.quickStartedAt && Date.now() - job.quickStartedAt >= FAST_LANE_BUDGET_MS) {
+            const decision = this.promoteOrQueue(job, 'time-budget');
+            if (decision === 'queued') throw new QueuePromotionError('time-budget');
+        }
+
+        // Heavy work cooperatively yields only between bounded browser/CDP
+        // operations. That prevents a second page from starting halfway through a
+        // sensitive Runtime.evaluate while still giving short chats a fast lane.
+        if (job.lane === 'heavy') {
+            this.heavyAtCheckpoint = true;
+            this._pump();
+            try {
+                while (this.activeQuick && this.activeQuick !== job) {
+                    if (job.cancelled) {
+                        throw new ExtractionError('The extraction request was cancelled.', { status: 499, code: 'CLIENT_DISCONNECTED' });
+                    }
+                    await this._waitForChange();
+                }
+            } finally {
+                if (this.activeHeavy === job) this.heavyAtCheckpoint = false;
+            }
+        }
+    }
+
+    finish(job) {
+        this._removeFromQueue(this.quickQueue, job);
+        this._removeFromQueue(this.heavyQueue, job);
+        const finishedQuick = this.activeQuick === job;
+        if (finishedQuick) this.activeQuick = null;
+        if (this.activeHeavy === job) {
+            this.activeHeavy = null;
+            this.heavyAtCheckpoint = false;
+            this.heavyPriorityUntil = 0;
+        } else if (finishedQuick && this.activeHeavy) {
+            this.heavyPriorityUntil = Date.now() + HEAVY_PROGRESS_SLICE_MS;
+        }
+        job.state = 'done';
+        this._signalChange();
+        this._pump();
+    }
+
+    cancel(job) {
+        if (!job || job.cancelled) return;
+        job.cancelled = true;
+        this._removeFromQueue(this.quickQueue, job);
+        this._removeFromQueue(this.heavyQueue, job);
+        const cancelledQuick = this.activeQuick === job;
+        if (cancelledQuick) this.activeQuick = null;
+        if (this.activeHeavy === job) {
+            this.activeHeavy = null;
+            this.heavyAtCheckpoint = false;
+            this.heavyPriorityUntil = 0;
+        } else if (cancelledQuick && this.activeHeavy) {
+            this.heavyPriorityUntil = Date.now() + HEAVY_PROGRESS_SLICE_MS;
+        }
+        const error = new ExtractionError('The extraction request was cancelled.', { status: 499, code: 'CLIENT_DISCONNECTED' });
+        job.quickDeferred?.reject(error);
+        job.heavyDeferred?.reject(error);
+        try { job.abortAttempt?.(); } catch (_) {}
+        this._signalChange();
+        this._pump();
+    }
+
+    stats() {
+        return {
+            quickWaiting: this.quickQueue.length,
+            heavyWaiting: this.heavyQueue.length,
+            totalWaiting: this.quickQueue.length + this.heavyQueue.length,
+            quickActive: !!this.activeQuick,
+            heavyActive: !!this.activeHeavy
+        };
+    }
+}
+
+const extractionScheduler = new ExtractionScheduler();
+
+function estimateConversationWork(evidence, structuredMessages = []) {
+    const domMessages = Math.max(0, Number(evidence?.users || 0) + Number(evidence?.assistants || 0));
+    const structuredCount = Array.isArray(structuredMessages) ? structuredMessages.length : 0;
+    const messageCount = Math.max(domMessages, structuredCount);
+    const scrollHeight = Math.max(0, Number(evidence?.scrollHeight || 0));
+    const sampledText = Math.max(0, Number(evidence?.textLength || 0));
+
+    if (messageCount >= HEAVY_MESSAGE_THRESHOLD) return { heavy: true, reason: 'message-count', messageCount };
+    if (scrollHeight >= HEAVY_SCROLL_HEIGHT_THRESHOLD) return { heavy: true, reason: 'page-height', messageCount };
+    if (sampledText >= HEAVY_SAMPLED_TEXT_THRESHOLD) return { heavy: true, reason: 'text-density', messageCount };
+    return { heavy: false, reason: 'quick', messageCount };
+}
+
+let sharedBrowser = null;
+let sharedBrowserPromise = null;
+let sharedBrowserRemote = false;
+
+async function launchSharedBrowser() {
+    const launchArgs = [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage'
+    ];
+    if (process.env.EXTRACTION_PROXY_SERVER) launchArgs.push(`--proxy-server=${process.env.EXTRACTION_PROXY_SERVER}`);
+
+    if (process.env.BROWSER_WS_ENDPOINT) {
+        sharedBrowserRemote = true;
+        return puppeteer.connect({
+            browserWSEndpoint: process.env.BROWSER_WS_ENDPOINT,
+            protocolTimeout: PUPPETEER_PROTOCOL_TIMEOUT_MS
+        });
+    }
+
+    sharedBrowserRemote = false;
+    return puppeteer.launch({
+        headless: true,
+        args: launchArgs,
+        timeout: BROWSER_LAUNCH_TIMEOUT_MS,
+        protocolTimeout: PUPPETEER_PROTOCOL_TIMEOUT_MS
+    });
+}
+
+async function getSharedBrowser() {
+    if (sharedBrowser?.connected) return sharedBrowser;
+    if (sharedBrowserPromise) return sharedBrowserPromise;
+
+    sharedBrowserPromise = (async () => {
+        const browser = await launchSharedBrowser();
+        sharedBrowser = browser;
+        browser.once('disconnected', () => {
+            if (sharedBrowser === browser) sharedBrowser = null;
+        });
+        return browser;
+    })().finally(() => {
+        sharedBrowserPromise = null;
+    });
+    return sharedBrowserPromise;
+}
+
+async function openSharedExtractionPage() {
+    let lastError;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+            const browser = await getSharedBrowser();
+            const context = typeof browser.createBrowserContext === 'function'
+                ? await browser.createBrowserContext()
+                : null;
+            const page = context ? await context.newPage() : await browser.newPage();
+            return { browser, context, page };
+        } catch (error) {
+            lastError = error;
+            if (sharedBrowser && !sharedBrowser.connected) sharedBrowser = null;
+        }
+    }
+    throw lastError || new Error('Unable to create a browser page.');
+}
+
+async function closeSharedExtractionPage(resource) {
+    if (!resource) return;
+    const { page, context } = resource;
+    const closeWithDeadline = async (fn) => {
+        let timer;
+        try {
+            await Promise.race([
+                Promise.resolve().then(fn).catch(() => {}),
+                new Promise(resolve => {
+                    timer = setTimeout(resolve, Math.min(4000, BROWSER_CLOSE_TIMEOUT_MS));
+                    timer.unref?.();
+                })
+            ]);
+        } finally {
+            if (timer) clearTimeout(timer);
+        }
+    };
+
+    if (page && !page.isClosed?.()) await closeWithDeadline(() => page.close({ runBeforeUnload: false }));
+    if (context) await closeWithDeadline(() => context.close());
+}
+
+async function closeSharedBrowserSafely() {
+    const browser = sharedBrowser;
+    sharedBrowser = null;
+    if (!browser) return;
+    if (sharedBrowserRemote) {
+        try { browser.disconnect(); } catch (_) {}
+        return;
+    }
+    await closeBrowserSafely(browser, false);
 }
 
 function isProtocolTimeoutError(error) {
@@ -1338,7 +1839,13 @@ async function inspectConversationDOM(page, provider) {
             textLength: users.textLength + assistants.textLength,
             bodyText: hasBothRoles ? '' : String(document.body?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 3000),
             title: document.title || '',
-            url: location.href
+            url: location.href,
+            scrollHeight: Math.max(
+                document.scrollingElement?.scrollHeight || 0,
+                document.documentElement?.scrollHeight || 0,
+                document.body?.scrollHeight || 0
+            ),
+            viewportHeight: window.innerHeight || 0
         };
     }, {
         userSelector: selectors.user || '',
@@ -1379,12 +1886,13 @@ function detectBlockedOrUnavailable({ status, evidence, failedApiResponses }) {
     return '';
 }
 
-async function waitForConversation(page, provider, timeout) {
+async function waitForConversation(page, provider, timeout, { checkpoint = null } = {}) {
     const deadline = Date.now() + Math.max(1000, timeout || 0);
     let stable = 0;
     let previous = '';
 
     while (Date.now() < deadline) {
+        if (checkpoint) await checkpoint(`${provider}.wait`);
         try {
             if (provider === 'gemini') {
                 await page.evaluate(() => {
@@ -1480,36 +1988,37 @@ async function collectSmallPageSnapshot(page, { maxChars = 2_500_000, timeoutMs 
     }
 }
 
-async function collectPageHTML(page, provider, url, { expectedMessages = 0 } = {}) {
+async function collectPageHTML(page, provider, url, { expectedMessages = 0, checkpoint = null } = {}) {
     try {
+        if (checkpoint) await checkpoint(`${provider}.network_idle`);
         await page.waitForNetworkIdle({ idleTime: 650, timeout: 7000 }).catch(() => {});
 
         if (provider === 'chatgpt') {
-            const html = await collectChatGPTHTML(page, url, { expectedMessages });
+            const html = await collectChatGPTHTML(page, url, { expectedMessages, checkpoint });
             if (/data-message-author-role|conversation-turn-|data-turn=/i.test(html)) return html;
             return (await collectSmallPageSnapshot(page)) || html;
         }
 
         if (provider === 'claude') {
-            const html = await collectClaudeHTML(page, url, { expectedMessages });
+            const html = await collectClaudeHTML(page, url, { expectedMessages, checkpoint });
             if (/data-c2p-claude-turn|font-claude-response|standard-markdown|progressive-markdown/i.test(html)) return html;
             return (await collectSmallPageSnapshot(page)) || html;
         }
 
         if (provider === 'gemini') {
-            const html = await collectGeminiHTML(page, url, { expectedMessages });
+            const html = await collectGeminiHTML(page, url, { expectedMessages, checkpoint });
             if (/share-turn-viewer|markdown-main-panel|query-text/i.test(html)) return html;
             return (await collectSmallPageSnapshot(page)) || html;
         }
 
         if (provider === 'qwen') {
-            const html = await collectQwenHTML(page, url, { expectedMessages });
+            const html = await collectQwenHTML(page, url, { expectedMessages, checkpoint });
             if (/share-layout-messages|qwen-chat-message/i.test(html)) return html;
             return (await collectSmallPageSnapshot(page)) || html;
         }
 
         if (provider === 'grok') {
-            const html = await collectGrokHTML(page, url, { expectedMessages });
+            const html = await collectGrokHTML(page, url, { expectedMessages, checkpoint });
             if (/data-testid=["'](?:user-message|assistant-message)["']/i.test(html)) return html;
             return (await collectSmallPageSnapshot(page)) || html;
         }
@@ -1535,138 +2044,80 @@ async function collectPageHTML(page, provider, url, { expectedMessages = 0 } = {
 }
 
 // ==========================================
-// ROTA DE EXTRAÇÃO (API)
+// EXTRACTION EXECUTION + QUEUE-AWARE API
 // ==========================================
-app.post('/api/extract', extractionSecurityHeaders, rejectCrossOriginBrowserRequests, limiter, async (req, res) => {
-    const requestId = crypto.randomUUID().slice(0, 8);
-    const extractionStartedAt = Date.now();
-    const wantsProgressStream = String(req.get('accept') || '').includes('application/x-ndjson');
-    const validation = validateShareUrl(req.body?.url);
-    if (validation.error) {
-        return res.status(400).json({ success: false, code: 'INVALID_SHARE_URL', error: validation.error, requestId });
-    }
-
+async function executeExtractionAttempt({ job, validation, sendProgress }) {
     const { url, provider } = validation;
-    let browser;
-    let remoteBrowser = false;
+    const attemptStartedAt = Date.now();
+    let resource = null;
+    let closingPromise = null;
+    let hardTimeoutTriggered = false;
+    let currentOperation = 'attempt.starting';
 
-    if (wantsProgressStream) {
-        res.status(200);
-        res.set({
-            'Content-Type': 'application/x-ndjson; charset=utf-8',
-            'Cache-Control': 'no-store, private, max-age=0, no-transform',
-            'X-Accel-Buffering': 'no'
-        });
-        if (typeof res.flushHeaders === 'function') res.flushHeaders();
-    }
-
-    let currentProgressStage = 'validated';
-    const sendProgress = (stage, extra = {}) => {
-        if (stage && !extra.heartbeat) currentProgressStage = stage;
-        if (!wantsProgressStream || res.writableEnded) return;
-        res.write(`${JSON.stringify({ type: 'progress', stage, provider, ...extra })}\n`);
+    const closeCurrentPage = () => {
+        if (closingPromise) return closingPromise;
+        if (!resource) return Promise.resolve();
+        const current = resource;
+        resource = null;
+        closingPromise = closeSharedExtractionPage(current)
+            .catch(() => {})
+            .finally(() => { closingPromise = null; });
+        return closingPromise;
     };
 
-    // Long conversations can legitimately spend a while inside one extraction stage.
-    // Keep the NDJSON connection active without inventing new UI states or sending any
-    // conversation data. loading.html ignores repeated copies of the same stage.
-    const progressHeartbeat = wantsProgressStream
-        ? setInterval(() => sendProgress(currentProgressStage, { heartbeat: true }), 12000)
-        : null;
-    progressHeartbeat?.unref?.();
+    job.abortAttempt = () => { void closeCurrentPage(); };
 
-    const writeNdjson = async (event) => {
-        if (res.writableEnded) return false;
-        const writable = res.write(`${JSON.stringify(event)}\n`);
-        if (!writable && !res.writableEnded) {
-            await new Promise((resolve) => {
-                const done = () => {
-                    res.off('drain', done);
-                    res.off('close', done);
-                    resolve();
-                };
-                res.once('drain', done);
-                res.once('close', done);
-            });
-        }
-        return !res.writableEnded;
+    const hardTimeout = setTimeout(() => {
+        hardTimeoutTriggered = true;
+        void closeCurrentPage();
+    }, EXTRACTION_HARD_TIMEOUT_MS);
+    hardTimeout.unref?.();
+
+    const checkpoint = async (operation) => {
+        if (operation) currentOperation = operation;
+        await extractionScheduler.checkpoint(job, operation || currentOperation);
     };
-
-    const sendExtractionResponse = async (status, payload) => {
-        if (!wantsProgressStream) return res.status(status).json(payload);
-        if (res.writableEnded) return;
-        if (progressHeartbeat) clearInterval(progressHeartbeat);
-
-        const html = typeof payload?.html === 'string' ? payload.html : '';
-        if (html.length > STREAM_HTML_CHUNK_SIZE) {
-            const { html: _html, ...metadata } = payload;
-            const totalChunks = Math.ceil(html.length / STREAM_HTML_CHUNK_SIZE);
-            if (!await writeNdjson({ type: 'result_start', status, htmlChunked: true, totalChunks, ...metadata })) return;
-            for (let offset = 0, index = 0; offset < html.length; offset += STREAM_HTML_CHUNK_SIZE, index += 1) {
-                const data = html.slice(offset, offset + STREAM_HTML_CHUNK_SIZE);
-                if (!await writeNdjson({ type: 'html_chunk', index, data })) return;
-            }
-            if (!await writeNdjson({ type: 'result_end' })) return;
-            res.end();
-            return;
-        }
-
-        await writeNdjson({ type: 'result', status, ...payload });
-        if (!res.writableEnded) res.end();
-    };
-
-    sendProgress('validated');
 
     try {
-        console.log(`[${requestId}] extracting ${provider} share from ${validation.parsedUrl.hostname}`);
+        console.log(`[${job.requestId}] extracting ${provider} share lane=${job.lane} from ${validation.parsedUrl.hostname}`);
         sendProgress('browser_starting');
+        currentOperation = 'browser.sharedPage';
+        await checkpoint(currentOperation);
+        resource = await openSharedExtractionPage();
+        const { browser, page } = resource;
 
-        const launchArgs = [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage'
-        ];
-        if (process.env.EXTRACTION_PROXY_SERVER) {
-            launchArgs.push(`--proxy-server=${process.env.EXTRACTION_PROXY_SERVER}`);
-        }
-
-        if (process.env.BROWSER_WS_ENDPOINT) {
-            remoteBrowser = true;
-            browser = await puppeteer.connect({
-                browserWSEndpoint: process.env.BROWSER_WS_ENDPOINT,
-                protocolTimeout: PUPPETEER_PROTOCOL_TIMEOUT_MS
-            });
-        } else {
-            browser = await puppeteer.launch({
-                headless: true,
-                args: launchArgs,
-                protocolTimeout: PUPPETEER_PROTOCOL_TIMEOUT_MS
+        if (job.cancelled || hardTimeoutTriggered) {
+            throw new ExtractionError('The extraction was cancelled before the browser became ready.', {
+                status: job.cancelled ? 499 : 504,
+                code: job.cancelled ? 'CLIENT_DISCONNECTED' : 'EXTRACTION_HARD_TIMEOUT'
             });
         }
 
-        const page = await browser.newPage();
         sendProgress('browser_ready');
         if (process.env.EXTRACTION_PROXY_USERNAME && process.env.EXTRACTION_PROXY_PASSWORD) {
+            currentOperation = 'page.authenticate';
+            await checkpoint(currentOperation);
             await page.authenticate({
                 username: process.env.EXTRACTION_PROXY_USERNAME,
                 password: process.env.EXTRACTION_PROXY_PASSWORD
             });
         }
+
         page.setDefaultNavigationTimeout(30000);
         page.setDefaultTimeout(20000);
+        currentOperation = 'page.setup';
+        await checkpoint(currentOperation);
         await page.setViewport({ width: 1440, height: 1200, deviceScaleFactor: 1 });
         await page.setCacheEnabled(false);
 
-        // Keep the browser version internally consistent instead of advertising a
-        // hard-coded Chrome build that can disagree with Puppeteer's Chromium.
+        // The stealth plugin's async UA override is disabled globally. Keep the
+        // explicit, awaited override inside this request so failures remain catchable.
         const browserUA = await browser.userAgent();
         await page.setUserAgent(browserUA.replace(/HeadlessChrome\//i, 'Chrome/'));
         await page.setExtraHTTPHeaders({
             'Accept-Language': 'en-US,en;q=0.9'
         });
 
-        // Keep images available: some shared Gemini/ChatGPT responses only finish
-        // mounting after image-backed content resolves. We block video/audio only.
         await page.setRequestInterception(true);
         page.on('request', (request) => {
             const operation = request.resourceType() === 'media'
@@ -1675,22 +2126,25 @@ app.post('/api/extract', extractionSecurityHeaders, rejectCrossOriginBrowserRequ
             operation.catch(() => {});
         });
 
-        const networkCapture = createNetworkCapture(page, requestId);
+        const networkCapture = createNetworkCapture(page, job.requestId);
         const pageErrors = [];
         page.on('pageerror', (error) => {
             pageErrors.push(error?.name || 'PageError');
             if (pageErrors.length > 8) pageErrors.shift();
         });
         if (process.env.DEBUG_EXTRACTION === '1') {
-            page.on('console', message => console.log(`[${requestId}] browser:${message.type()}`));
+            page.on('console', message => console.log(`[${job.requestId}] browser:${message.type()}`));
         }
 
         let navigationResponse;
         sendProgress('opening_link');
+        currentOperation = 'page.goto';
+        await checkpoint(currentOperation);
         try {
             navigationResponse = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
             sendProgress('link_opened');
         } catch (error) {
+            if (job.cancelled || hardTimeoutTriggered) throw error;
             throw new ExtractionError(`The ${provider} share page did not finish loading.`, {
                 status: 504,
                 code: 'NAVIGATION_TIMEOUT'
@@ -1698,10 +2152,13 @@ app.post('/api/extract', extractionSecurityHeaders, rejectCrossOriginBrowserRequ
         }
 
         sendProgress('waiting_for_conversation');
-        await waitForConversation(page, provider, provider === 'gemini' ? 26000 : 18000);
+        currentOperation = 'conversation.wait';
+        await waitForConversation(page, provider, provider === 'gemini' ? 26000 : 18000, { checkpoint });
         await networkCapture.flush();
 
         sendProgress('inspecting_conversation');
+        currentOperation = 'conversation.inspect';
+        await checkpoint(currentOperation);
         let evidence = await inspectConversationDOM(page, provider);
         let networkMessages = collectStructuredMessages(networkCapture.payloads);
         let embeddedMessages = [];
@@ -1710,12 +2167,21 @@ app.post('/api/extract', extractionSecurityHeaders, rejectCrossOriginBrowserRequ
         let htmlEvidence = { users: 0, assistants: 0, textLength: 0 };
         let status = navigationResponse?.status() || 0;
 
-        // Do not reject a page just because the first live-DOM poll was early.
-        // Provider-specific collectors can trigger lazy hydration and produce a
-        // stable snapshot even when the shell initially exposes only one side.
+        // Size is only a hint. A medium-looking chat that finishes inside the fast
+        // budget stays fast; a truly huge DOM/network payload is promoted early.
+        if (job.lane === 'quick') {
+            const work = estimateConversationWork(evidence, fallbackMessages);
+            if (work.heavy) {
+                const decision = extractionScheduler.promoteOrQueue(job, work.reason);
+                if (decision === 'queued') throw new QueuePromotionError(work.reason);
+                await checkpoint('conversation.heavy_promoted');
+            }
+        }
+
         if (!hasUsableDomEvidence(evidence) && !hasUsableNetworkEvidence(fallbackMessages)) {
             sendProgress('collecting_conversation');
-            html = await collectPageHTML(page, provider, url, { expectedMessages: fallbackMessages.length });
+            currentOperation = `${provider}.collect`;
+            html = await collectPageHTML(page, provider, url, { expectedMessages: fallbackMessages.length, checkpoint });
             htmlEvidence = inspectCollectedHTMLEvidence(html, provider);
             embeddedMessages = collectEmbeddedStructuredMessages(html);
             fallbackMessages = collectStructuredMessages([networkMessages, embeddedMessages]);
@@ -1728,19 +2194,29 @@ app.post('/api/extract', extractionSecurityHeaders, rejectCrossOriginBrowserRequ
             ? detectBlockedOrUnavailable({ status, evidence, failedApiResponses: networkCapture.failedApiResponses })
             : '';
 
-        // One retry is still useful for a transient provider hydration failure, but
-        // on retry we always run the provider collector before declaring failure.
         if (!hasConversationEvidence && !state) {
-            console.log(`[${requestId}] no complete conversation evidence after first load; retrying hydration once`);
+            console.log(`[${job.requestId}] no complete conversation evidence after first load; retrying hydration once`);
             sendProgress('retrying_provider');
             try {
+                currentOperation = `${provider}.reload`;
+                await checkpoint(currentOperation);
                 navigationResponse = await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }) || navigationResponse;
-                await waitForConversation(page, provider, provider === 'gemini' ? 18000 : 11000);
+                await waitForConversation(page, provider, provider === 'gemini' ? 18000 : 11000, { checkpoint });
                 await networkCapture.flush();
                 evidence = await inspectConversationDOM(page, provider);
                 networkMessages = collectStructuredMessages(networkCapture.payloads);
 
-                html = await collectPageHTML(page, provider, url, { expectedMessages: fallbackMessages.length });
+                if (job.lane === 'quick') {
+                    const work = estimateConversationWork(evidence, networkMessages);
+                    if (work.heavy) {
+                        const decision = extractionScheduler.promoteOrQueue(job, work.reason);
+                        if (decision === 'queued') throw new QueuePromotionError(work.reason);
+                        await checkpoint('conversation.heavy_promoted_retry');
+                    }
+                }
+
+                currentOperation = `${provider}.collect_retry`;
+                html = await collectPageHTML(page, provider, url, { expectedMessages: fallbackMessages.length, checkpoint });
                 htmlEvidence = inspectCollectedHTMLEvidence(html, provider);
                 embeddedMessages = collectEmbeddedStructuredMessages(html);
                 fallbackMessages = collectStructuredMessages([networkMessages, embeddedMessages]);
@@ -1751,7 +2227,8 @@ app.post('/api/extract', extractionSecurityHeaders, rejectCrossOriginBrowserRequ
                 state = !hasConversationEvidence
                     ? detectBlockedOrUnavailable({ status, evidence, failedApiResponses: networkCapture.failedApiResponses })
                     : '';
-            } catch (_) {
+            } catch (error) {
+                if (error instanceof QueuePromotionError || job.cancelled || hardTimeoutTriggered) throw error;
                 // The detailed evidence below is more useful than a reload error.
             }
         }
@@ -1772,7 +2249,7 @@ app.post('/api/extract', extractionSecurityHeaders, rejectCrossOriginBrowserRequ
         }
 
         if (!hasConversationEvidence) {
-            console.warn(`[${requestId}] no messages: status=${status} finalOrigin=${safeUrlForLog(evidence?.url)} dom=${evidence?.users || 0}/${evidence?.assistants || 0} collected=${htmlEvidence.users}/${htmlEvidence.assistants} apiFailures=${JSON.stringify(networkCapture.failedApiResponses)} pageErrors=${JSON.stringify(pageErrors)}`);
+            console.warn(`[${job.requestId}] no messages: status=${status} finalOrigin=${safeUrlForLog(evidence?.url)} dom=${evidence?.users || 0}/${evidence?.assistants || 0} collected=${htmlEvidence.users}/${htmlEvidence.assistants} apiFailures=${JSON.stringify(networkCapture.failedApiResponses)} pageErrors=${JSON.stringify(pageErrors)}`);
             throw new ExtractionError(
                 `The public ${provider} page opened, but its conversation data was not delivered to the extractor. The provider may have changed its page structure or blocked datacenter browsers.`,
                 { status: 502, code: 'CONVERSATION_NOT_DELIVERED' }
@@ -1781,9 +2258,13 @@ app.post('/api/extract', extractionSecurityHeaders, rejectCrossOriginBrowserRequ
 
         if (!html) {
             sendProgress('collecting_conversation');
-            html = await collectPageHTML(page, provider, url, { expectedMessages: fallbackMessages.length });
+            currentOperation = `${provider}.collect_final`;
+            html = await collectPageHTML(page, provider, url, { expectedMessages: fallbackMessages.length, checkpoint });
         }
+
         sendProgress('finalizing_extraction');
+        currentOperation = 'conversation.finalize';
+        await checkpoint(currentOperation);
         htmlEvidence = inspectCollectedHTMLEvidence(html, provider);
         await networkCapture.flush();
         networkMessages = collectStructuredMessages(networkCapture.payloads);
@@ -1791,9 +2272,6 @@ app.post('/api/extract', extractionSecurityHeaders, rejectCrossOriginBrowserRequ
         fallbackMessages = collectStructuredMessages([networkMessages, embeddedMessages]);
         html = appendNetworkFallback(html, provider, fallbackMessages);
 
-        // Final guard accepts any independently useful extraction path. This is
-        // especially important for Gemini, where the custom-element snapshot may
-        // be valid even if the earlier live-DOM poll happened during hydration.
         if (!hasUsableDomEvidence(evidence) &&
             !hasUsableNetworkEvidence(fallbackMessages) &&
             !hasUsableCollectedEvidence(htmlEvidence)) {
@@ -1806,26 +2284,148 @@ app.post('/api/extract', extractionSecurityHeaders, rejectCrossOriginBrowserRequ
         const source = hasUsableCollectedEvidence(htmlEvidence)
             ? 'collected-html'
             : (hasUsableDomEvidence(evidence) ? 'dom' : 'structured-fallback');
-        console.log(`[${requestId}] extraction succeeded provider=${provider} dom=${evidence.users}/${evidence.assistants} collected=${htmlEvidence.users}/${htmlEvidence.assistants} fallbackMessages=${fallbackMessages.length} durationMs=${Date.now() - extractionStartedAt}`);
-        sendProgress('extraction_complete', { source });
-        return await sendExtractionResponse(200, {
+
+        console.log(`[${job.requestId}] attempt succeeded lane=${job.lane} provider=${provider} dom=${evidence.users}/${evidence.assistants} collected=${htmlEvidence.users}/${htmlEvidence.assistants} fallbackMessages=${fallbackMessages.length} attemptMs=${Date.now() - attemptStartedAt}`);
+        return {
             success: true,
             provider,
             html,
             diagnostics: {
-                requestId,
+                requestId: job.requestId,
                 source,
+                lane: job.lane,
                 domMessages: { users: evidence.users || 0, assistants: evidence.assistants || 0 },
                 collectedMessages: { users: htmlEvidence.users || 0, assistants: htmlEvidence.assistants || 0 },
                 structuredMessages: fallbackMessages.length
             }
-        });
+        };
     } catch (error) {
+        if (error instanceof QueuePromotionError) throw error;
+        if (job.cancelled) {
+            throw new ExtractionError('The extraction request was cancelled.', { status: 499, code: 'CLIENT_DISCONNECTED' });
+        }
+        if (hardTimeoutTriggered) {
+            throw new ExtractionError('The browser exceeded the maximum extraction time and was stopped. Please try the link again.', {
+                status: 504,
+                code: 'EXTRACTION_HARD_TIMEOUT'
+            });
+        }
+        if (error && !error.operation) error.operation = currentOperation;
+        throw error;
+    } finally {
+        clearTimeout(hardTimeout);
+        job.abortAttempt = null;
+        await closeCurrentPage();
+    }
+}
+
+app.post('/api/extract', extractionSecurityHeaders, rejectCrossOriginBrowserRequests, limiter, async (req, res) => {
+    const requestId = crypto.randomUUID().slice(0, 8);
+    const requestStartedAt = Date.now();
+    const wantsProgressStream = String(req.get('accept') || '').includes('application/x-ndjson');
+    const validation = validateShareUrl(req.body?.url);
+    if (validation.error) {
+        return res.status(400).json({ success: false, code: 'INVALID_SHARE_URL', error: validation.error, requestId });
+    }
+
+    const { provider } = validation;
+
+    if (wantsProgressStream) {
+        res.status(200);
+        res.set({
+            'Content-Type': 'application/x-ndjson; charset=utf-8',
+            'Cache-Control': 'no-store, private, max-age=0, no-transform',
+            'X-Accel-Buffering': 'no'
+        });
+        if (typeof res.flushHeaders === 'function') res.flushHeaders();
+    }
+
+    let currentProgressStage = 'validated';
+    const sendProgress = (stage, extra = {}) => {
+        if (stage && !extra.heartbeat) currentProgressStage = stage;
+        if (!wantsProgressStream || res.writableEnded || res.destroyed) return;
+        res.write(`${JSON.stringify({ type: 'progress', stage, provider, ...extra })}\n`);
+    };
+
+    const progressHeartbeat = wantsProgressStream
+        ? setInterval(() => sendProgress(currentProgressStage, { heartbeat: true }), 12000)
+        : null;
+    progressHeartbeat?.unref?.();
+
+    const writeNdjson = async (event) => {
+        if (res.writableEnded || res.destroyed) return false;
+        const writable = res.write(`${JSON.stringify(event)}\n`);
+        if (!writable && !res.writableEnded) {
+            await new Promise((resolve) => {
+                const done = () => {
+                    res.off('drain', done);
+                    res.off('close', done);
+                    resolve();
+                };
+                res.once('drain', done);
+                res.once('close', done);
+            });
+        }
+        return !res.writableEnded;
+    };
+
+    const sendExtractionResponse = async (status, payload) => {
+        if (!wantsProgressStream) return res.status(status).json(payload);
+        if (res.writableEnded || res.destroyed) return;
+        if (progressHeartbeat) clearInterval(progressHeartbeat);
+
+        const html = typeof payload?.html === 'string' ? payload.html : '';
+        if (html.length > STREAM_HTML_CHUNK_SIZE) {
+            const { html: _html, ...metadata } = payload;
+            const totalChunks = Math.ceil(html.length / STREAM_HTML_CHUNK_SIZE);
+            if (!await writeNdjson({ type: 'result_start', status, htmlChunked: true, totalChunks, ...metadata })) return;
+            for (let offset = 0, index = 0; offset < html.length; offset += STREAM_HTML_CHUNK_SIZE, index += 1) {
+                const data = html.slice(offset, offset + STREAM_HTML_CHUNK_SIZE);
+                if (!await writeNdjson({ type: 'html_chunk', index, data })) return;
+            }
+            if (!await writeNdjson({ type: 'result_end' })) return;
+            res.end();
+            return;
+        }
+
+        await writeNdjson({ type: 'result', status, ...payload });
+        if (!res.writableEnded) res.end();
+    };
+
+    const job = extractionScheduler.createJob({ requestId, provider, sendProgress });
+    const onResponseClose = () => {
+        if (res.writableEnded) return;
+        extractionScheduler.cancel(job);
+    };
+    res.on('close', onResponseClose);
+
+    sendProgress('validated');
+
+    try {
+        await extractionScheduler.enqueueQuick(job);
+
+        let result;
+        while (!result) {
+            try {
+                result = await executeExtractionAttempt({ job, validation, sendProgress });
+            } catch (error) {
+                if (!(error instanceof QueuePromotionError)) throw error;
+                await extractionScheduler.waitForHeavy(job);
+            }
+        }
+
+        extractionScheduler.finish(job);
+        console.log(`[${requestId}] extraction succeeded provider=${provider} lane=${result.diagnostics?.lane || job.lane} totalMs=${Date.now() - requestStartedAt}`);
+        sendProgress('extraction_complete', { source: result.diagnostics?.source });
+        return await sendExtractionResponse(200, result);
+    } catch (error) {
+        extractionScheduler.finish(job);
         const protocolTimedOut = !(error instanceof ExtractionError) && isProtocolTimeoutError(error);
         const status = error instanceof ExtractionError ? error.status : (protocolTimedOut ? 504 : 500);
         const code = error instanceof ExtractionError ? error.code : (protocolTimedOut ? 'BROWSER_PROTOCOL_TIMEOUT' : 'EXTRACTION_FAILED');
-        const operation = error?.operation ? ` op=${String(error.operation).replace(/[^a-z0-9_.:-]/gi, '').slice(0, 80)}` : '';
-        console.error(`[${requestId}] ${code}${error instanceof ExtractionError ? `: ${error.message}` : ` (${error?.name || 'Error'})`}${operation} durationMs=${Date.now() - extractionStartedAt}`);
+        const operationName = error?.operation || job.currentOperation;
+        const operation = operationName ? ` op=${String(operationName).replace(/[^a-z0-9_.:-]/gi, '').slice(0, 80)}` : '';
+        console.error(`[${requestId}] ${code}${error instanceof ExtractionError ? `: ${error.message}` : ` (${error?.name || 'Error'})`}${operation} totalMs=${Date.now() - requestStartedAt}`);
         sendProgress('extraction_error', { code });
         return await sendExtractionResponse(status, {
             success: false,
@@ -1839,17 +2439,13 @@ app.post('/api/extract', extractionSecurityHeaders, rejectCrossOriginBrowserRequ
         });
     } finally {
         if (progressHeartbeat) clearInterval(progressHeartbeat);
-        if (browser) {
-            try {
-                if (remoteBrowser) browser.disconnect();
-                else await browser.close();
-            } catch (_) {}
-        }
+        res.off('close', onResponseClose);
+        if (job.state !== 'done') extractionScheduler.finish(job);
     }
 });
 
 
-app.get('/healthz', (req, res) => res.json({ ok: true }));
+app.get('/healthz', (req, res) => res.json({ ok: true, queue: extractionScheduler.stats(), browserConnected: !!sharedBrowser?.connected }));
 
 // Rota coringa para evitar que o DevTools do Chrome suje o terminal com erro 404
 // Rota coringa atualizada para o Express 5 (Trata rotas não encontradas)
@@ -1858,6 +2454,12 @@ app.use((req, res) => {
 });
 
 if (require.main === module) {
+    const shutdownSharedBrowser = () => {
+        void closeSharedBrowserSafely().finally(() => process.exit(0));
+    };
+    process.once('SIGTERM', shutdownSharedBrowser);
+    process.once('SIGINT', shutdownSharedBrowser);
+
     app.listen(PORT, () => {
         console.log(`🚀 Servidor e Programmatic SEO ativos em: http://localhost:${PORT}`);
     });
@@ -1867,5 +2469,8 @@ module.exports = {
     app,
     validateShareUrl,
     collectStructuredMessages,
-    parsePotentialStructuredBody
+    parsePotentialStructuredBody,
+    ExtractionScheduler,
+    estimateConversationWork,
+    QueuePromotionError
 };

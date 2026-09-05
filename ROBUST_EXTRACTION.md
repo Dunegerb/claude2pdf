@@ -18,18 +18,22 @@ If a provider blocks the Railway/datacenter IP, configure either a proxy or a re
 - `BROWSER_WS_ENDPOINT` — optional Puppeteer-compatible remote browser WebSocket endpoint. When set, the app connects instead of launching local Chromium.
 - `DEBUG_EXTRACTION=1` — enables browser console diagnostics. Keep disabled during normal operation.
 - `TRUST_PROXY_HOPS` — defaults to `1`, appropriate for Railway's reverse-proxy setup.
-- `PUPPETEER_PROTOCOL_TIMEOUT_MS` — defaults to `300000` (5 minutes). This is a safety margin for individual CDP calls; long-conversation collectors are split into shorter calls so normal operation should not approach this limit.
+- `PUPPETEER_PROTOCOL_TIMEOUT_MS` — defaults to `60000` (60 seconds). Long-conversation collectors are split into shorter bounded calls, so this remains a final CDP safety margin rather than the normal work budget.
 - `CLAUDE_COLLECTION_BUDGET_MS` — defaults to `150000` (2.5 minutes) for Claude’s rich-DOM collector.
 - `CLAUDE_CAPTURE_BATCH_SIZE` — defaults to `24`; limits how many new/richer Claude turns are cloned in one CDP call.
 - `PROVIDER_COLLECTION_BUDGET_MS` — defaults to `150000` (2.5 minutes) for ChatGPT, Gemini, Grok, and Qwen.
 - `PROVIDER_CAPTURE_BATCH_SIZE` — defaults to `20`; limits DOM clones per CDP call for ChatGPT, Gemini, Grok, and Qwen.
 - `STREAM_HTML_CHUNK_SIZE` — defaults to `262144` bytes; large HTML results are sent to the browser as bounded NDJSON chunks instead of one giant result line.
+- `FAST_LANE_BUDGET_MS` — defaults to `30000`; jobs that remain expensive beyond the fast budget are promoted to the heavy queue.
+- `HEAVY_PROGRESS_SLICE_MS` — defaults to `8000`; after a quick job passes, the active heavy job gets a guaranteed progress window.
+- `QUEUE_MEMORY_PRESSURE_PERCENT` — defaults to `82`; the fast lane will not open a second page beside a heavy page when cgroup memory usage is above this percentage.
+- `MAX_QUEUE_DEPTH` — defaults to `25`; caps waiting requests so a tiny deployment cannot accumulate an unbounded number of open queue connections.
 
 Do not commit proxy credentials or browser WebSocket secrets to the repository. Store them as deployment environment variables.
 
 ## Monitoring
 
-`GET /healthz` returns `{ "ok": true }` and can be used as the Railway health-check path.
+`GET /healthz` returns `ok`, non-sensitive queue counts, and shared-browser connection status, and can be used as the Railway health-check path.
 
 Extraction errors include a short `requestId` in the API response and server logs, making production failures easier to correlate without logging conversation content.
 
